@@ -198,13 +198,26 @@ void handleSerialCommands() {
   Serial.println(line);
 
   if (line.startsWith("WIFI ")) {
-    // WIFI <ssid> <pass>  — space-separated, pass may contain no spaces
-    int sp = line.indexOf(' ', 5);
-    if (sp < 0) { Serial.println("Usage: WIFI <ssid> <pass>"); return; }
+    // WIFI <ssid>|<pass>  — use pipe separator for SSIDs with spaces
+    int sp = line.indexOf('|', 5);
+    if (sp < 0) {
+      // Fallback to legacy space separator if no pipe found
+      sp = line.indexOf(' ', 5);
+    }
+
+    if (sp < 0) {
+      Serial.println("Usage: WIFI <ssid>|<pass>  (Use | if SSID has spaces)");
+      return;
+    }
+
     String ssid = line.substring(5, sp);
     String pass = line.substring(sp + 1);
+    ssid.trim();
+    pass.trim();
+
     strlcpy(activeCfg.wifiSsid, ssid.c_str(), sizeof(activeCfg.wifiSsid));
     strlcpy(activeCfg.wifiPass, pass.c_str(), sizeof(activeCfg.wifiPass));
+    Serial.printf("Setting WiFi: SSID='%s' PASS='%s'\n", ssid.c_str(), pass.c_str());
     storage.saveConfig(activeCfg);
     Serial.println("WiFi credentials saved. Rebooting...");
     delay(500); ESP.restart();

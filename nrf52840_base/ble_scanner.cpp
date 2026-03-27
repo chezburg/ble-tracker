@@ -1,6 +1,6 @@
 /*
  * ble_scanner.cpp
- * Continuously scans for BLEBase advertisements, extracts
+ * Continuously scans for BLEBase_0/1/2 advertisements, extracts
  * RSSI + TX-power-at-1m from manufacturer data, applies a
  * per-base Kalman filter, and converts to distance via the
  * log-distance path-loss model.

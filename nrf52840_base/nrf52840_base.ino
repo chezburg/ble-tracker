@@ -30,10 +30,13 @@
  * ================================================================
  */
 
-#include <ArduinoBLE.h>
+#include <bluefruit.h>
 #include <InternalFileSystem.h>
 #include <ArduinoJson.h>
 #include "config.h"
+
+using namespace Adafruit_LittleFS_Namespace;
+using namespace ArduinoJson;
 
 // ── Runtime config ───────────────────────────────────────────────
 struct BaseConfig {
@@ -46,10 +49,10 @@ struct BaseConfig {
 static BaseConfig cfg;
 
 // ── BLE objects ──────────────────────────────────────────────────
-BLEService             configService  (CONFIG_SERVICE_UUID);
-BLEByteCharacteristic  charBaseId     (CHAR_BASE_ID_UUID,    BLERead | BLEWrite);
-BLEByteCharacteristic  charTxPower    (CHAR_TX_POWER_UUID,   BLERead | BLEWrite);
-BLEShortCharacteristic charAdvInterval(CHAR_ADV_INTERVAL_UUID, BLERead | BLEWrite);
+BLEService        configService(CONFIG_SERVICE_UUID);
+BLECharacteristic charBaseId(CHAR_BASE_ID_UUID);
+BLECharacteristic charTxPower(CHAR_TX_POWER_UUID);
+BLECharacteristic charAdvInterval(CHAR_ADV_INTERVAL_UUID);
 
 // ── Forward declarations ─────────────────────────────────────────
 void loadConfig();
@@ -60,9 +63,9 @@ void runProvisioningMode();
 void handleSerialCommands();
 void printStatus();
 void ledBreath(uint32_t periodMs);   // provisioning LED animation
-void onBaseIdWritten     (BLEDevice, BLECharacteristic);
-void onTxPowerWritten    (BLEDevice, BLECharacteristic);
-void onAdvIntervalWritten(BLEDevice, BLECharacteristic);
+void onBaseIdWritten     (uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t len);
+void onTxPowerWritten    (uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t len);
+void onAdvIntervalWritten(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t len);
 
 // ════════════════════════════════════════════════════════════════
 void setup() {
@@ -78,55 +81,51 @@ void setup() {
   if (!cfg.idSet) {
     // ── PROVISIONING MODE ─────────────────────────────────────
     runProvisioningMode();   // blocks until SETID received, then reboots
-    // execution never reaches here
   }
 
   // ── NORMAL BOOT ───────────────────────────────────────────────
   Serial.printf("\n[BASE] ID=%d  TxPwr=%ddBm  Interval=%dms\n",
                 cfg.baseId, cfg.txPower1m, cfg.advIntervalMs);
 
-  if (!BLE.begin()) {
-    Serial.println("[BASE] BLE init failed — halting");
-    while (true) { digitalWrite(LED_PIN, !digitalRead(LED_PIN)); delay(100); }
-  }
+  Bluefruit.begin();
+  Bluefruit.setTxPower(4);    // +4dBm is a good balance for indoors
 
   String devName = String(BLE_DEVICE_NAME_PREFIX) + "_" + String(cfg.baseId);
-  BLE.setLocalName(devName.c_str());
-  BLE.setDeviceName(devName.c_str());
+  Bluefruit.setName(devName.c_str());
 
   // GATT config service (allows runtime updates even after provisioning)
-  charBaseId.setValue(cfg.baseId);
-  charBaseId.setEventHandler(BLEWritten, onBaseIdWritten);
-  charTxPower.setValue((uint8_t)cfg.txPower1m);
-  charTxPower.setEventHandler(BLEWritten, onTxPowerWritten);
-  charAdvInterval.setValue(cfg.advIntervalMs);
-  charAdvInterval.setEventHandler(BLEWritten, onAdvIntervalWritten);
+  configService.begin();
 
-  configService.addCharacteristic(charBaseId);
-  configService.addCharacteristic(charTxPower);
-  configService.addCharacteristic(charAdvInterval);
-  BLE.addService(configService);
+  charBaseId.setProperties(CHR_PROPS_READ | CHR_PROPS_WRITE);
+  charBaseId.setPermission(SECMODE_OPEN, SECMODE_OPEN);
+  charBaseId.setFixedLen(1);
+  charBaseId.begin();
+  charBaseId.write8(cfg.baseId);
+  charBaseId.setWriteCallback(onBaseIdWritten);
+
+  charTxPower.setProperties(CHR_PROPS_READ | CHR_PROPS_WRITE);
+  charTxPower.setPermission(SECMODE_OPEN, SECMODE_OPEN);
+  charTxPower.setFixedLen(1);
+  charTxPower.begin();
+  charTxPower.write8((uint8_t)cfg.txPower1m);
+  charTxPower.setWriteCallback(onTxPowerWritten);
+
+  charAdvInterval.setProperties(CHR_PROPS_READ | CHR_PROPS_WRITE);
+  charAdvInterval.setPermission(SECMODE_OPEN, SECMODE_OPEN);
+  charAdvInterval.setFixedLen(2);
+  charAdvInterval.begin();
+  charAdvInterval.write16(cfg.advIntervalMs);
+  charAdvInterval.setWriteCallback(onAdvIntervalWritten);
 
   buildAdvertisement();
-  BLE.advertise();
+  Bluefruit.Advertising.start(0);                // 0 = advertise forever
 
   Serial.printf("[BASE] Advertising as \"%s\"\n", devName.c_str());
 }
 
 // ════════════════════════════════════════════════════════════════
 void loop() {
-  // Handle any incoming BLE central connection (for GATT config)
-  BLEDevice central = BLE.central();
-  if (central) {
-    Serial.printf("[BASE] Central connected: %s\n", central.address().c_str());
-    while (central.connected()) {
-      BLE.poll();
-      handleSerialCommands();
-      delay(10);
-    }
-    Serial.println("[BASE] Central disconnected — re-advertising.");
-    BLE.advertise();
-  }
+  // Handle BLE events (Bluefruit handles most tasks via callbacks or internal tasks)
 
   // Blink LED each advertisement cycle to show liveness
   static uint32_t lastBlink = 0;
@@ -138,6 +137,7 @@ void loop() {
   }
 
   handleSerialCommands();
+  delay(10);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -246,9 +246,9 @@ void handleSerialCommands() {
     if (v >= 20 && v <= 10000) {
       cfg.advIntervalMs = (uint16_t)v;
       saveConfig();
-      BLE.stopAdvertise();
+      Bluefruit.Advertising.stop();
       buildAdvertisement();
-      BLE.advertise();
+      Bluefruit.Advertising.start(0);
       Serial.printf("[BASE] Adv interval set to %d ms\n", v);
     } else {
       Serial.println("[BASE] Interval must be 20–10000 ms");
@@ -268,27 +268,26 @@ void handleSerialCommands() {
   }
 }
 
-// ════════════════════════════════════════════════════════════════
+// ────────────────────────────────────────────────────────────────
 //  Advertisement builder
-// ════════════════════════════════════════════════════════════════
+// ────────────────────────────────────────────────────────────────
 void buildAdvertisement() {
   /*
-   * Manufacturer-specific data (2 bytes after 2-byte company ID):
-   *   Byte 0 : Base ID      (uint8)
-   *   Byte 1 : TX power 1m  (int8 cast to uint8)
+   * Manufacturer-specific data: 2-byte Company ID followed by payload
+   * (4 bytes total: 0x59, 0x00, BaseID, TxPower)
    */
-  BLEAdvertisingData adData;
-  uint8_t mfgData[2] = { cfg.baseId, (uint8_t)cfg.txPower1m };
-  adData.setManufacturerData(0x0059, mfgData, sizeof(mfgData));
-  adData.setFlags(BLEFlagsBREDRNotSupported | BLEFlagsGeneralDiscoverable);
-  BLE.setAdvertisingData(adData);
+  uint8_t mfgPayload[4] = { 0x59, 0x00, cfg.baseId, (uint8_t)cfg.txPower1m };
 
-  BLEAdvertisingData srData;
-  String devName = String(BLE_DEVICE_NAME_PREFIX) + "_" + String(cfg.baseId);
-  srData.setLocalName(devName.c_str());
-  BLE.setScanResponseData(srData);
+  Bluefruit.Advertising.clearData();
+  Bluefruit.Advertising.addFlags(BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE);
+  Bluefruit.Advertising.addManufacturerData(mfgPayload, sizeof(mfgPayload));
 
-  BLE.setAdvertisingInterval(cfg.advIntervalMs * 8 / 5);
+  // Name in scan response to keep advertisement payload small
+  Bluefruit.ScanResponse.addName();
+
+  Bluefruit.Advertising.restartOnDisconnect(true);
+  Bluefruit.Advertising.setInterval(cfg.advIntervalMs * 8 / 5, cfg.advIntervalMs * 8 / 5);
+  Bluefruit.Advertising.setFastTimeout(30);      // number of seconds in fast mode
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -310,11 +309,12 @@ void ledBreath(uint32_t periodMs) {
   delay(16);                                        // ~60 fps
 }
 
-// ════════════════════════════════════════════════════════════════
+// ────────────────────────────────────────────────────────────────
 //  GATT write handlers
-// ════════════════════════════════════════════════════════════════
-void onBaseIdWritten(BLEDevice central, BLECharacteristic c) {
-  uint8_t v = charBaseId.value();
+// ────────────────────────────────────────────────────────────────
+void onBaseIdWritten(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
+  if (len < 1) return;
+  uint8_t v = data[0];
   if (v <= 2) {
     cfg.baseId = v;
     cfg.idSet  = true;
@@ -324,21 +324,23 @@ void onBaseIdWritten(BLEDevice central, BLECharacteristic c) {
   }
 }
 
-void onTxPowerWritten(BLEDevice central, BLECharacteristic c) {
-  cfg.txPower1m = (int8_t)charTxPower.value();
+void onTxPowerWritten(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
+  if (len < 1) return;
+  cfg.txPower1m = (int8_t)data[0];
   saveConfig();
   buildAdvertisement();
   Serial.printf("[BASE] TX power updated via BLE to %d dBm\n", cfg.txPower1m);
 }
 
-void onAdvIntervalWritten(BLEDevice central, BLECharacteristic c) {
-  uint16_t v = charAdvInterval.value();
+void onAdvIntervalWritten(uint16_t conn_hdl, BLECharacteristic* chr, uint8_t* data, uint16_t len) {
+  if (len < 2) return;
+  uint16_t v = (data[1] << 8) | data[0];   // Little-endian
   if (v >= 20 && v <= 10000) {
     cfg.advIntervalMs = v;
     saveConfig();
-    BLE.stopAdvertise();
+    Bluefruit.Advertising.stop();
     buildAdvertisement();
-    BLE.advertise();
+    Bluefruit.Advertising.start(0);
     Serial.printf("[BASE] Adv interval updated via BLE to %d ms\n", v);
   }
 }
@@ -354,7 +356,7 @@ void loadConfig() {
     return;
   }
 
-  StaticJsonDocument<128> doc;
+  JsonDocument doc;
   DeserializationError err = deserializeJson(doc, f);
   f.close();
 

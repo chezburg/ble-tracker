@@ -12,7 +12,7 @@
 // ── BLE scanner ────────────────────────────────────────────────
 #define NUM_BASES                3
 #define BASE_MFG_CID             0x0059      // Nordic Semiconductor CID in adv payload
-#define BASE_NAME_PREFIX         "BLEBase_"
+#define BASE_NAME_PREFIX         "BLEBase"
 #define BLE_SCAN_INTERVAL        100         // ms — must be >= adv interval on bases
 #define BLE_SCAN_WINDOW          80          // ms — active listen window per interval
 #define RSSI_HISTORY_LEN         10          // samples in rolling average
