@@ -22,13 +22,14 @@
 // ── Path-loss model  d = 10^((TxPwr - RSSI) / (10*n)) ─────────
 #define DEFAULT_PATH_LOSS_N      2.5f        // 2.0 = free space, 3-4 = indoors
                                              // calibrate by walking known distances
+#define DEFAULT_TX_POWER_1M      -59         // Typical RSSI at 1 meter (calibrated)
 
 // ── Kalman filter (per-base RSSI smoothing) ────────────────────
 #define KALMAN_Q                 0.05f       // process noise  (lower = smoother)
 #define KALMAN_R                 3.0f        // measurement noise (higher = smoother)
 
 // ── Positioning ────────────────────────────────────────────────
-#define POSITION_UPDATE_HZ       2           // trilateration runs at this rate
+#define POSITION_UPDATE_HZ       5           // Increased to 5Hz for averaging
 #define POSITION_SMOOTH_ALPHA    0.3f        // EMA alpha for output XY (0=still,1=raw)
 
 // ── Altimeter / floor detection ────────────────────────────────

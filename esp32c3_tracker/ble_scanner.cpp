@@ -76,7 +76,7 @@ void BLEScanner::onResult(const NimBLEAdvertisedDevice* dev) {
   b.valid      = true;
 
   kalmanUpdate(b, b.rssiRaw);
-  b.distanceM = estimateDistance(b.txPower1m, b.rssiFiltered);
+  b.distanceM = estimateDistance(b.txPower1m, b.rssiFiltered, baseId);
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -95,12 +95,74 @@ void BLEScanner::kalmanUpdate(BaseReading& b, int newRssi) {
 
 // ────────────────────────────────────────────────────────────────
 //  Log-distance path-loss model
-//    d = 10 ^ ((TxPower_1m - RSSI_filtered) / (10 * n))
+//    d = 10 ^ ((TxPower_1m - RSSI_filtered) / (10 * n)) + offset
 // ────────────────────────────────────────────────────────────────
-float BLEScanner::estimateDistance(int8_t txPower, float rssiFiltered) const {
-  if (rssiFiltered >= 0) return 0.01f;  // clamp nonsense readings
-  float ratio = ((float)txPower - rssiFiltered) / (10.0f * _pathLossN);
-  return powf(10.0f, ratio);
+float BLEScanner::estimateDistance(int8_t txPower, float rssiFiltered, uint8_t baseId) const {
+  if (rssiFiltered >= 0) return 0.01f;
+
+  float n     = _baseN[baseId];
+  float txRef = _baseTxRef[baseId];
+
+  float ratio = (txRef - rssiFiltered) / (10.0f * n);
+  float d = powf(10.0f, ratio);
+
+  if (baseId < NUM_BASES) {
+    d += _offsets[baseId];
+  }
+
+  return (d < 0.01f) ? 0.01f : d;
+}
+
+// ────────────────────────────────────────────────────────────────
+bool BLEScanner::addCalPoint(uint8_t id, float dist, float& outN, float& outTxRef) {
+  if (id >= NUM_BASES || !_bases[id].valid) return false;
+
+  uint8_t idx = _calCount[id] % 5;
+  _calPoints[id][idx].log10D = log10f(dist);
+  _calPoints[id][idx].rssi   = _bases[id].rssiFiltered;
+  _calPoints[id][idx].set    = true;
+  _calCount[id]++;
+
+  int nPoints = min((int)_calCount[id], 5);
+  if (nPoints < 2) {
+    // Single point: Adjust TX power reference only, keep default N
+    outN     = _baseN[id];
+    outTxRef = _calPoints[id][idx].rssi + 10.0f * outN * _calPoints[id][idx].log10D;
+    _baseN[id]     = outN;
+    _baseTxRef[id] = outTxRef;
+    return true;
+  }
+
+  // Linear Regression (Least Squares)
+  // RSSI = (-10n) * log10(d) + TxRef
+  // y = mx + c
+  float sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+  for (int i = 0; i < 5; i++) {
+    if (!_calPoints[id][i].set) continue;
+    float x = _calPoints[id][i].log10D;
+    float y = _calPoints[id][i].rssi;
+    sumX  += x;
+    sumY  += y;
+    sumXY += x * y;
+    sumX2 += x * x;
+  }
+
+  float denominator = (nPoints * sumX2 - sumX * sumX);
+  if (fabsf(denominator) < 1e-5f) return false;
+
+  float m = (nPoints * sumXY - sumX * sumY) / denominator;
+  float c = (sumY - m * sumX) / nPoints;
+
+  outN     = -m / 10.0f;
+  outTxRef = c;
+
+  // Sanity check N
+  if (outN < 1.0f) outN = 1.0f;
+  if (outN > 5.0f) outN = 5.0f;
+
+  _baseN[id]     = outN;
+  _baseTxRef[id] = outTxRef;
+  return true;
 }
 
 // ────────────────────────────────────────────────────────────────

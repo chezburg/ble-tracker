@@ -75,7 +75,41 @@ void Positioning::update() {
     float res  = calc - dist[i];
     rms += res * res;
   }
-  _fix.accuracy = sqrtf(rms / NUM_BASES);
+  _fix.accuracy    = sqrtf(rms / NUM_BASES);
+
+  // Update averaging history
+  _history[_historyIdx] = _fix;
+  _historyIdx++;
+  if (_historyIdx >= 3) {
+    _historyIdx = 0;
+    _historyFull = true;
+  }
+}
+
+// ────────────────────────────────────────────────────────────────
+PositionFix Positioning::getAveragedFix() const {
+  if (!_historyFull) {
+    // Before buffer is full, just return the newest single fix
+    uint8_t lastIdx = (_historyIdx > 0) ? (_historyIdx - 1) : 2;
+    return _history[lastIdx];
+  }
+
+  PositionFix avg = _history[0]; // Copy metadata (floor, altitude, time, validity)
+  avg.x = 0;
+  avg.y = 0;
+  avg.accuracy = 0;
+
+  for (int i = 0; i < 3; i++) {
+    avg.x += _history[i].x;
+    avg.y += _history[i].y;
+    avg.accuracy += _history[i].accuracy;
+  }
+
+  avg.x /= 3.0f;
+  avg.y /= 3.0f;
+  avg.accuracy /= 3.0f;
+
+  return avg;
 }
 
 // ────────────────────────────────────────────────────────────────

@@ -19,6 +19,9 @@
  *    REGFLOOR <n>              — register current altitude as floor n
  *    FLOORS <n>                — set total floor count
  *    PATHLOSS <n>              — set path-loss exponent
+ *    OFFSET <id> <m>           — set distance offset (metres) for base id
+ *    KNOWNDIST <id> <m>        — auto-calibrate offset from known distance
+ *    CALPOINT <id> <m>         — calibrate multi-point path-loss model
  *    CALGROUND                 — re-calibrate barometer ground reference
  *    CLEARLOG                  — erase flash position log
  *    STATUS                    — print current state
@@ -79,6 +82,10 @@ void setup() {
 
   // ── BLE scanner ──────────────────────────────────────────────
   bleScanner.setPathLossN(activeCfg.pathLossN);
+  for (int i = 0; i < NUM_BASES; i++) {
+    bleScanner.setBaseModel(i, activeCfg.baseN[i], activeCfg.baseTxRef[i]);
+    bleScanner.setBaseOffset(i, activeCfg.baseOffsets[i]);
+  }
   bleScanner.begin();
 
   // ── WiFi + Web server ────────────────────────────────────────
@@ -162,7 +169,7 @@ void loop() {
 //  Serial debug output
 // ════════════════════════════════════════════════════════════════
 void printDebug() {
-  const PositionFix& fix = positioning.latest();
+  const PositionFix& fix = positioning.getAveragedFix();
 
   Serial.println("─────────────────────────────────────");
   Serial.printf("BLE bases: %d/%d valid\n", bleScanner.validCount(), NUM_BASES);
@@ -264,6 +271,58 @@ void handleSerialCommands() {
       Serial.printf("Path-loss exponent set to %.2f\n", n);
     }
   }
+  else if (line.startsWith("OFFSET ")) {
+    // OFFSET <id> <meters>
+    int id; float m;
+    if (sscanf(line.c_str() + 7, "%d %f", &id, &m) == 2 && id < NUM_BASES) {
+      activeCfg.baseOffsets[id] = m;
+      bleScanner.setBaseOffset(id, m);
+      storage.saveConfig(activeCfg);
+      Serial.printf("Base %d distance offset set to %.2f m\n", id, m);
+    } else {
+      Serial.println("Usage: OFFSET <id 0-2> <meters>");
+    }
+  }
+  else if (line.startsWith("KNOWNDIST ")) {
+    // KNOWNDIST <id> <actual_distance>
+    int id; float actual;
+    if (sscanf(line.c_str() + 10, "%d %f", &id, &actual) == 2 && id < NUM_BASES) {
+      const BaseReading& b = bleScanner.base(id);
+      if (!b.valid) {
+        Serial.printf("Base %d is not visible (stale). Can't calibrate.\n", id);
+      } else {
+        float currentDist = b.distanceM;
+        float currentOffset = bleScanner.getBaseOffset(id);
+        float rawDist = currentDist - currentOffset; // Distance WITHOUT the current offset
+
+        float newOffset = actual - rawDist;
+        activeCfg.baseOffsets[id] = newOffset;
+        bleScanner.setBaseOffset(id, newOffset);
+        storage.saveConfig(activeCfg);
+        Serial.printf("Base %d recalibrated: raw=%.2fm, new offset=%.2fm -> reported=%.2fm\n",
+                      id, rawDist, newOffset, actual);
+      }
+    } else {
+      Serial.println("Usage: KNOWNDIST <id 0-2> <actual_meters>");
+    }
+  }
+  else if (line.startsWith("CALPOINT ")) {
+    // CALPOINT <id> <actual_distance>
+    int id; float dist;
+    if (sscanf(line.c_str() + 9, "%d %f", &id, &dist) == 2 && id < NUM_BASES) {
+      float n, txRef;
+      if (bleScanner.addCalPoint(id, dist, n, txRef)) {
+        activeCfg.baseN[id] = n;
+        activeCfg.baseTxRef[id] = txRef;
+        storage.saveConfig(activeCfg);
+        Serial.printf("Base %d model updated: N=%.2f, TXRef=%.1f\n", id, n, txRef);
+      } else {
+        Serial.println("Error: Base not visible or regression failure.");
+      }
+    } else {
+      Serial.println("Usage: CALPOINT <id 0-2> <actual_meters>");
+    }
+  }
   else if (line == "CALGROUND") {
     altimeter.calibrateGround();
     Serial.println("Barometer ground reference recalibrated.");
@@ -279,15 +338,17 @@ void handleSerialCommands() {
     Serial.printf("Floors    : %d\n", activeCfg.floorCount);
     for (int i = 0; i < activeCfg.floorCount; i++)
       Serial.printf("  Floor %d: %.2f m\n", i, activeCfg.floorHeights[i]);
-    for (int i = 0; i < NUM_BASES; i++)
-      Serial.printf("  Base %d: (%.2f, %.2f)\n", i,
-                    activeCfg.baseCoords[i].x, activeCfg.baseCoords[i].y);
+    for (int i = 0; i < NUM_BASES; i++) {
+      Serial.printf("  Base %d: (%.2f, %.2f)  Offset: %.2f m  N: %.2f  TXRef: %.1f\n", i,
+                    activeCfg.baseCoords[i].x, activeCfg.baseCoords[i].y,
+                    activeCfg.baseOffsets[i], activeCfg.baseN[i], activeCfg.baseTxRef[i]);
+    }
   }
   else if (line == "REBOOT") {
     Serial.println("Rebooting...");
     delay(300); ESP.restart();
   }
   else {
-    Serial.println("Unknown command. Commands: WIFI, BASE, REGFLOOR, FLOORS, PATHLOSS, CALGROUND, CLEARLOG, STATUS, REBOOT");
+    Serial.println("Unknown command. Commands: WIFI, BASE, REGFLOOR, FLOORS, PATHLOSS, OFFSET, KNOWNDIST, CALGROUND, CLEARLOG, STATUS, REBOOT");
   }
 }

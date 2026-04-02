@@ -18,6 +18,13 @@ struct BaseReading {
   float    kError;
 };
 
+// ── Per-base calibration data ───────────────────────────────────
+struct CalPoint {
+  float log10D;
+  float rssi;
+  bool  set;
+};
+
 // ── BLEScanner ──────────────────────────────────────────────────
 class BLEScanner : public NimBLEScanCallbacks {
 public:
@@ -32,15 +39,33 @@ public:
   void     setPathLossN(float n) { _pathLossN = n; }
   float    getPathLossN()  const { return _pathLossN; }
 
+  void     setBaseModel(uint8_t id, float n, float txRef) {
+    if (id < NUM_BASES) { _baseN[id] = n; _baseTxRef[id] = txRef; }
+  }
+  float    getBaseN(uint8_t id)     const { return (id < NUM_BASES) ? _baseN[id] : _pathLossN; }
+  float    getBaseTxRef(uint8_t id) const { return (id < NUM_BASES) ? _baseTxRef[id] : -59.0f; }
+
+  void     setBaseOffset(uint8_t id, float offset) { if (id < NUM_BASES) _offsets[id] = offset; }
+  float    getBaseOffset(uint8_t id) const { return (id < NUM_BASES) ? _offsets[id] : 0.0f; }
+
+  bool     addCalPoint(uint8_t id, float actualDist, float& outN, float& outTxRef);
+
 private:
   // NimBLE callback — signature changed in NimBLE-Arduino 2.x
   void onResult(const NimBLEAdvertisedDevice* dev) override;
 
-  float   estimateDistance(int8_t txPower, float rssiFiltered) const;
+  float   estimateDistance(int8_t txPower, float rssiFiltered, uint8_t baseId) const;
   void    kalmanUpdate(BaseReading& b, int newRssi);
 
   BaseReading _bases[NUM_BASES];
   float       _pathLossN = DEFAULT_PATH_LOSS_N;
+  float       _baseN[NUM_BASES];
+  float       _baseTxRef[NUM_BASES];
+  float       _offsets[NUM_BASES] = {0.0f, 0.0f, 0.0f};
+
+  CalPoint    _calPoints[NUM_BASES][5];
+  uint8_t     _calCount[NUM_BASES] = {0, 0, 0};
+
   NimBLEScan* _scan      = nullptr;
 };
 

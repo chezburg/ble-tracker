@@ -17,17 +17,10 @@ static LogEntry logBuffer[LOG_MAX_ENTRIES];
 void Storage::begin() {
   prefs.begin(NVS_NS_CONFIG, false);
 
-  // Restore log metadata
-  _logHead  = prefs.getInt("logHead",  0);
-  _logCount = prefs.getInt("logCount", 0);
+  _logHead  = 0;  // RAM-only log
+  _logCount = 0;  //RAM-only log
 
-  // Restore log entries from NVS blob
-  size_t sz = sizeof(logBuffer);
-  if (prefs.isKey("logBuf")) {
-    prefs.getBytes("logBuf", logBuffer, sz);
-  }
-
-  Serial.printf("[NVS] Storage ready. %d log entries.\n", _logCount);
+  Serial.printf("[NVS] Storage ready. (RAM-only log buffer initialized)\n");
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -57,6 +50,22 @@ void Storage::loadConfig(TrackerConfig& cfg) {
   // Path loss
   cfg.pathLossN = prefs.getFloat("pathLossN", DEFAULT_PATH_LOSS_N);
 
+  // Per-base Path loss model
+  for (int i = 0; i < NUM_BASES; i++) {
+    char keyN[12], keyTX[12];
+    snprintf(keyN, sizeof(keyN), "bn%d", i);
+    snprintf(keyTX, sizeof(keyTX), "btx%d", i);
+    cfg.baseN[i]     = prefs.getFloat(keyN,  DEFAULT_PATH_LOSS_N);
+    cfg.baseTxRef[i] = prefs.getFloat(keyTX, (float)DEFAULT_TX_POWER_1M);
+  }
+
+  // Base offsets
+  for (int i = 0; i < NUM_BASES; i++) {
+    char key[12];
+    snprintf(key, sizeof(key), "bo%d", i);
+    cfg.baseOffsets[i] = prefs.getFloat(key, 0.0f);
+  }
+
   Serial.println("[NVS] Config loaded.");
 }
 
@@ -81,21 +90,30 @@ void Storage::saveConfig(const TrackerConfig& cfg) {
 
   prefs.putFloat("pathLossN", cfg.pathLossN);
 
+  for (int i = 0; i < NUM_BASES; i++) {
+    char keyN[12], keyTX[12];
+    snprintf(keyN, sizeof(keyN), "bn%d", i);
+    snprintf(keyTX, sizeof(keyTX), "btx%d", i);
+    prefs.putFloat(keyN,  cfg.baseN[i]);
+    prefs.putFloat(keyTX, cfg.baseTxRef[i]);
+  }
+
+  for (int i = 0; i < NUM_BASES; i++) {
+    char key[12];
+    snprintf(key, sizeof(key), "bo%d", i);
+    prefs.putFloat(key, cfg.baseOffsets[i]);
+  }
+
   Serial.println("[NVS] Config saved.");
 }
 
 // ────────────────────────────────────────────────────────────────
-//  Circular log buffer
+//  Circular log buffer (RAM-only)
 // ────────────────────────────────────────────────────────────────
 void Storage::appendLog(const LogEntry& entry) {
   logBuffer[_logHead] = entry;
   _logHead = (_logHead + 1) % LOG_MAX_ENTRIES;
   if (_logCount < LOG_MAX_ENTRIES) _logCount++;
-
-  // Persist metadata and buffer to NVS
-  prefs.putInt("logHead",  _logHead);
-  prefs.putInt("logCount", _logCount);
-  prefs.putBytes("logBuf", logBuffer, sizeof(logBuffer));
 }
 
 int Storage::logCount() const {
@@ -111,7 +129,5 @@ LogEntry Storage::getLog(int index) const {
 void Storage::clearLog() {
   _logHead  = 0;
   _logCount = 0;
-  prefs.putInt("logHead",  0);
-  prefs.putInt("logCount", 0);
-  Serial.println("[NVS] Log cleared.");
+  Serial.println("[RAM] Log cleared.");
 }

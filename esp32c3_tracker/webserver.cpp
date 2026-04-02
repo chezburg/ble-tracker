@@ -388,7 +388,7 @@ void WebServer::setupRoutes() {
 
   // Snapshot of current state (for initial page load)
   httpServer.on("/state", HTTP_GET, [](AsyncWebServerRequest* req) {
-    StaticJsonDocument<1024> doc;
+    DynamicJsonDocument doc(1280); // Heap allocation to prevent stack overflow
     JsonArray jBases = doc.createNestedArray("bases");
     for (int i = 0; i < NUM_BASES; i++) {
       JsonObject jb = jBases.createNestedObject();
@@ -406,18 +406,20 @@ void WebServer::setupRoutes() {
 
   // Download full position log as JSON
   httpServer.on("/log", HTTP_GET, [](AsyncWebServerRequest* req) {
-    String out = "[";
+    // Stream response directly to avoid building a 24KB String in RAM
+    AsyncResponseStream *response = req->beginResponseStream("application/json");
+    response->print("[");
     for (int i = 0; i < storage.logCount(); i++) {
-      if (i) out += ",";
+      if (i > 0) response->print(",");
       LogEntry e = storage.getLog(i);
       char buf[128];
       snprintf(buf, sizeof(buf),
                "{\"ts\":%lu,\"x\":%.3f,\"y\":%.3f,\"alt\":%.3f,\"floor\":%d,\"acc\":%.3f}",
                (unsigned long)e.ts, e.x, e.y, e.altM, e.floor, e.accuracy);
-      out += buf;
+      response->print(buf);
     }
-    out += "]";
-    req->send(200, "application/json", out);
+    response->print("]");
+    req->send(response);
   });
 
   // Clear log
@@ -477,7 +479,7 @@ void WebServer::update() {
   // Position update
   {
     const PositionFix& fix = positioning.latest();
-    StaticJsonDocument<256> doc;
+    DynamicJsonDocument doc(256); // Heap allocation
     doc["type"]     = "position";
     doc["x"]        = fix.valid ? fix.x        : 0;
     doc["y"]        = fix.valid ? fix.y        : 0;
@@ -491,7 +493,7 @@ void WebServer::update() {
 
   // Base station data
   {
-    StaticJsonDocument<512> doc;
+    DynamicJsonDocument doc(640); // Heap allocation
     doc["type"] = "bases";
     JsonArray arr = doc.createNestedArray("bases");
     for (int i = 0; i < NUM_BASES; i++) {

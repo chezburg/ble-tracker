@@ -34,6 +34,7 @@ public:
   uint8_t getFloorCount() const  { return _floorCount; }
 
   const PositionFix& latest() const { return _fix; }
+  PositionFix getAveragedFix() const;
 
 private:
   /*
@@ -53,6 +54,9 @@ private:
   uint8_t     _floorCount = 1;
 
   PositionFix _fix;
+  PositionFix _history[3];
+  uint8_t     _historyIdx = 0;
+  bool        _historyFull = false;
   float       _smoothX = 0, _smoothY = 0;
   bool        _firstFix = true;
 };
