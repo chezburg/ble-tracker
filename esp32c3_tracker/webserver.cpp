@@ -454,7 +454,7 @@ void WebServer::setupRoutes() {
       }
       if (doc.containsKey("registerFloor")) {
         uint8_t f = doc["registerFloor"];
-        float h = altimeter.getAltitudeM();
+        float h = 0.0f; // altimeter disabled
         cfg.floorHeights[f] = h;
         cfg.floorCount = max((int)cfg.floorCount, (int)f + 1);
         positioning.setFloorHeight(f, h);

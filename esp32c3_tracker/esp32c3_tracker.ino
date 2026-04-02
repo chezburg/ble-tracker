@@ -103,12 +103,12 @@ void loop() {
   bleScanner.update();
 
   // ── Barometer ────────────────────────────────────────────────
-  if (now - lastBaroUpdate >= BARO_INTERVAL_MS) {
+  if (now - lastBaroUpdate >= (1000 / BARO_UPDATE_HZ)) {
     lastBaroUpdate = now;
     altimeter.update();
 
     // Determine floor from altitude
-    const PositionFix& fix = positioning.latest();
+    // const PositionFix& fix = positioning.latest();
     // Re-use last fix's floor; detectFloor is internal to positioning
     // We call a small helper to propagate floor to altimeter
     float alt = altimeter.getAltitudeM();
