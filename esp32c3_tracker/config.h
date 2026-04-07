@@ -56,7 +56,7 @@
 #define WEB_SERVER_PORT          80
 #define WS_PORT                  81
 #define WS_PUSH_INTERVAL_MS      500         // 2 Hz
-#define DEFAULT_SERVER_URL       "http://192.168.1.100:3000/data" // Central Web App Endpoint
+#define DEFAULT_SERVER_URL       "http://localhost:3000/data" // Central Web App Endpoint
 
 // ── Hardware ───────────────────────────────────────────────────
 #define LED_PIN                  10          // XIAO C3 LED
