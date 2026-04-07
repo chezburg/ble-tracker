@@ -32,6 +32,9 @@
 <body>
 
 <div id="map"></div>
+<div id="status" style="position:fixed; top:10px; right:10px; background:rgba(255,255,255,0.8); padding:5px 10px; border-radius:5px; font-family:sans-serif; font-size:12px; z-index:1000; border:1px solid #ccc;">
+    Last update: <span id="lastUpdate">Never</span>
+</div>
 <script>
 
     var map = L.map('map', {
@@ -71,6 +74,10 @@
                 document.getElementById("floorText").innerText =
                     "Floor: " + data.floor;
             }
+
+            // Update last update timestamp
+            document.getElementById("lastUpdate").innerText = new Date().toLocaleTimeString();
+            document.getElementById("status").style.backgroundColor = "rgba(255,255,255,0.8)";
 
         } catch (err) {
             console.error("Fetch error:", err);
