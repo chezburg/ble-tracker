@@ -96,10 +96,11 @@ void Positioning::update() {
   // Accuracy estimate: RMS of residuals
   float rms = 0;
   for (int i = 0; i < NUM_BASES; i++) {
+    const BaseReading& b = bleScanner.base(i);
     float dx = _fix.x - _coords[i].x;
     float dy = _fix.y - _coords[i].y;
     float calc = sqrtf(dx*dx + dy*dy);
-    float res  = calc - dist[i];
+    float res  = calc - b.distanceM;
     rms += res * res;
   }
   _fix.accuracy    = sqrtf(rms / NUM_BASES);
