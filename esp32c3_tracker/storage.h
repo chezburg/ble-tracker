@@ -8,9 +8,6 @@ struct TrackerConfig {
   char    wifiPass[64];
   BaseCoord baseCoords[NUM_BASES];
   float   floorHeights[MAX_FLOORS];
-  float   baseOffsets[NUM_BASES];
-  float   baseN[NUM_BASES];
-  float   baseTxRef[NUM_BASES];
   uint8_t floorCount;
   float   pathLossN;
 };

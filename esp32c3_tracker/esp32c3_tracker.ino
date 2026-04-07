@@ -36,7 +36,7 @@
 #include "positioning.h"
 #include "altimeter.h"
 #include "storage.h"
-#include "webserver.h"
+#include "dashboard.h"
 
 // ── Task timing ─────────────────────────────────────────────────
 static uint32_t lastPositionUpdate = 0;
@@ -82,14 +82,10 @@ void setup() {
 
   // ── BLE scanner ──────────────────────────────────────────────
   bleScanner.setPathLossN(activeCfg.pathLossN);
-  for (int i = 0; i < NUM_BASES; i++) {
-    bleScanner.setBaseModel(i, activeCfg.baseN[i], activeCfg.baseTxRef[i]);
-    bleScanner.setBaseOffset(i, activeCfg.baseOffsets[i]);
-  }
   bleScanner.begin();
 
   // ── WiFi + Web server ────────────────────────────────────────
-  webServer.begin(activeCfg.wifiSsid, activeCfg.wifiPass);
+  dashboard.begin(activeCfg.wifiSsid, activeCfg.wifiPass);
 
   Serial.println("[MAIN] Boot complete. System running.");
   Serial.println("[MAIN] Type 'STATUS' for current state.");
@@ -153,7 +149,7 @@ void loop() {
   }
 
   // ── WebSocket push ───────────────────────────────────────────
-  webServer.update();
+  dashboard.update();
 
   // ── USB serial debug ─────────────────────────────────────────
   if (now - lastDebugPrint >= DEBUG_INTERVAL_MS) {
@@ -205,15 +201,15 @@ void handleSerialCommands() {
   Serial.println(line);
 
   if (line.startsWith("WIFI ")) {
-    // WIFI <ssid>|<pass>  — use pipe separator for SSIDs with spaces
-    int sp = line.indexOf('|', 5);
-    if (sp < 0) {
-      // Fallback to legacy space separator if no pipe found
-      sp = line.indexOf(' ', 5);
+    // WIFI <ssid> <pass>  — supports spaces in SSID by taking the last space as the separator
+    // Note: If password has spaces, use the | separator: WIFI SSID Name|Password With Spaces
+    int sp = line.lastIndexOf('|');
+    if (sp < 5) {
+      sp = line.lastIndexOf(' ');
     }
 
-    if (sp < 0) {
-      Serial.println("Usage: WIFI <ssid>|<pass>  (Use | if SSID has spaces)");
+    if (sp < 5) {
+      Serial.println("Usage: WIFI <ssid> <pass>  (Use | if password also has spaces)");
       return;
     }
 
@@ -271,17 +267,34 @@ void handleSerialCommands() {
       Serial.printf("Path-loss exponent set to %.2f\n", n);
     }
   }
-  else if (line.startsWith("OFFSET ")) {
-    // OFFSET <id> <meters>
-    int id; float m;
-    if (sscanf(line.c_str() + 7, "%d %f", &id, &m) == 2 && id < NUM_BASES) {
-      activeCfg.baseOffsets[id] = m;
-      bleScanner.setBaseOffset(id, m);
-      storage.saveConfig(activeCfg);
-      Serial.printf("Base %d distance offset set to %.2f m\n", id, m);
-    } else {
-      Serial.println("Usage: OFFSET <id 0-2> <meters>");
+  else if (line == "CALGROUND") {
+    altimeter.calibrateGround();
+    Serial.println("Barometer ground reference recalibrated.");
+  }
+  else if (line == "CLEARLOG") {
+    storage.clearLog();
+  }
+  else if (line == "STATUS") {
+    printDebug();
+    Serial.printf("WiFi SSID : %s\n", activeCfg.wifiSsid);
+    Serial.printf("IP        : %s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("Path loss n: %.2f\n", activeCfg.pathLossN);
+    Serial.printf("Floors    : %d\n", activeCfg.floorCount);
+    for (int i = 0; i < activeCfg.floorCount; i++)
+      Serial.printf("  Floor %d: %.2f m\n", i, activeCfg.floorHeights[i]);
+    for (int i = 0; i < NUM_BASES; i++) {
+      Serial.printf("  Base %d: (%.2f, %.2f)\n", i,
+                    activeCfg.baseCoords[i].x, activeCfg.baseCoords[i].y);
     }
+  }
+  else if (line == "REBOOT") {
+    Serial.println("Rebooting...");
+    delay(300); ESP.restart();
+  }
+  else {
+    Serial.println("Unknown command. Commands: WIFI, BASE, REGFLOOR, FLOORS, PATHLOSS, CALGROUND, CLEARLOG, STATUS, REBOOT");
+  }
+}
   }
   else if (line.startsWith("KNOWNDIST ")) {
     // KNOWNDIST <id> <actual_distance>

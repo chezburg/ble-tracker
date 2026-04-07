@@ -23,13 +23,18 @@ void BLEScanner::begin() {
   _scan->setActiveScan(false);   // passive — bases use adv only
   _scan->start(0, false);        // continuous, non-blocking
 
-  // Initialise Kalman state
+  // Initialise Kalman state and history
   for (int i = 0; i < NUM_BASES; i++) {
     _bases[i].id          = i;
     _bases[i].valid       = false;
     _bases[i].kEstimate   = -70.0f;
     _bases[i].kError      = 2.0f;
     _bases[i].lastSeenMs  = 0;
+    _bases[i].distHistIdx = 0;
+    _bases[i].distHistCount = 0;
+    for (int j = 0; j < RSSI_HISTORY_LEN; j++) {
+      _bases[i].distHistory[j] = 0.0f;
+    }
   }
 
   Serial.println("[BLE] Scanner started.");
@@ -76,7 +81,44 @@ void BLEScanner::onResult(const NimBLEAdvertisedDevice* dev) {
   b.valid      = true;
 
   kalmanUpdate(b, b.rssiRaw);
-  b.distanceM = estimateDistance(b.txPower1m, b.rssiFiltered, baseId);
+  float rssiDistanceRaw = estimateDistance(b.txPower1m, b.rssiFiltered, baseId);
+
+  // Add new distance to history buffer
+  b.distHistory[b.distHistIdx] = rssiDistanceRaw;
+  b.distHistIdx = (b.distHistIdx + 1) % RSSI_HISTORY_LEN;
+  if (b.distHistCount < RSSI_HISTORY_LEN) {
+    b.distHistCount++;
+  }
+
+  // Calculate moving-window average of distances using Bermuda style local minimum
+  // In Bermuda: local_min tracks the minimum distance going back in time.
+  // It sums this monotonically decreasing local_min over the history to weight closer readings more.
+  float distTotal = 0.0f;
+  float localMin = rssiDistanceRaw;
+  
+  // Iterate backwards in time: newest sample is at (b.distHistIdx - 1)
+  int currentIndex = b.distHistIdx - 1;
+  if (currentIndex < 0) currentIndex = RSSI_HISTORY_LEN - 1;
+  
+  for (int i = 0; i < b.distHistCount; i++) {
+    float distance = b.distHistory[currentIndex];
+    if (distance <= localMin) {
+      localMin = distance;
+    }
+    distTotal += localMin;
+    
+    // Move backwards
+    currentIndex--;
+    if (currentIndex < 0) currentIndex = RSSI_HISTORY_LEN - 1;
+  }
+  
+  float movavg = (b.distHistCount > 0) ? (distTotal / b.distHistCount) : localMin;
+  
+  if (movavg < rssiDistanceRaw) {
+    b.distanceM = movavg;
+  } else {
+    b.distanceM = rssiDistanceRaw;
+  }
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -95,81 +137,20 @@ void BLEScanner::kalmanUpdate(BaseReading& b, int newRssi) {
 
 // ────────────────────────────────────────────────────────────────
 //  Log-distance path-loss model
-//    d = 10 ^ ((TxPower_1m - RSSI_filtered) / (10 * n)) + offset
+//    d = 10 ^ ((TxPower_1m - RSSI_filtered) / (10 * n))
 // ────────────────────────────────────────────────────────────────
 float BLEScanner::estimateDistance(int8_t txPower, float rssiFiltered, uint8_t baseId) const {
   if (rssiFiltered >= 0) return 0.01f;
 
-  float n     = _baseN[baseId];
-  float txRef = _baseTxRef[baseId];
-
-  float ratio = (txRef - rssiFiltered) / (10.0f * n);
+  float ratio = ((float)txPower - rssiFiltered) / (10.0f * _pathLossN);
   float d = powf(10.0f, ratio);
-
-  if (baseId < NUM_BASES) {
-    d += _offsets[baseId];
-  }
 
   return (d < 0.01f) ? 0.01f : d;
 }
 
 // ────────────────────────────────────────────────────────────────
-bool BLEScanner::addCalPoint(uint8_t id, float dist, float& outN, float& outTxRef) {
-  if (id >= NUM_BASES || !_bases[id].valid) return false;
-
-  uint8_t idx = _calCount[id] % 5;
-  _calPoints[id][idx].log10D = log10f(dist);
-  _calPoints[id][idx].rssi   = _bases[id].rssiFiltered;
-  _calPoints[id][idx].set    = true;
-  _calCount[id]++;
-
-  int nPoints = min((int)_calCount[id], 5);
-  if (nPoints < 2) {
-    // Single point: Adjust TX power reference only, keep default N
-    outN     = _baseN[id];
-    outTxRef = _calPoints[id][idx].rssi + 10.0f * outN * _calPoints[id][idx].log10D;
-    _baseN[id]     = outN;
-    _baseTxRef[id] = outTxRef;
-    return true;
-  }
-
-  // Linear Regression (Least Squares)
-  // RSSI = (-10n) * log10(d) + TxRef
-  // y = mx + c
-  float sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-  for (int i = 0; i < 5; i++) {
-    if (!_calPoints[id][i].set) continue;
-    float x = _calPoints[id][i].log10D;
-    float y = _calPoints[id][i].rssi;
-    sumX  += x;
-    sumY  += y;
-    sumXY += x * y;
-    sumX2 += x * x;
-  }
-
-  float denominator = (nPoints * sumX2 - sumX * sumX);
-  if (fabsf(denominator) < 1e-5f) return false;
-
-  float m = (nPoints * sumXY - sumX * sumY) / denominator;
-  float c = (sumY - m * sumX) / nPoints;
-
-  outN     = -m / 10.0f;
-  outTxRef = c;
-
-  // Sanity check N
-  if (outN < 1.0f) outN = 1.0f;
-  if (outN > 5.0f) outN = 5.0f;
-
-  _baseN[id]     = outN;
-  _baseTxRef[id] = outTxRef;
-  return true;
-}
-
-// ────────────────────────────────────────────────────────────────
 bool BLEScanner::hasValidFix() const {
-  for (int i = 0; i < NUM_BASES; i++)
-    if (!_bases[i].valid) return false;
-  return true;
+  return validCount() > 0;
 }
 
 uint8_t BLEScanner::validCount() const {

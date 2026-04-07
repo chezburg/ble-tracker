@@ -37,18 +37,45 @@ void Positioning::update() {
     return;
   }
 
-  // Gather distances and weights
-  float dist[NUM_BASES], weights[NUM_BASES];
-  for (int i = 0; i < NUM_BASES; i++) {
-    dist[i]    = bleScanner.base(i).distanceM;
-    // Weight = 1/d^2  — closer bases are more reliable
-    weights[i] = 1.0f / max(dist[i] * dist[i], 0.01f);
+  uint8_t count = bleScanner.validCount();
+  float nx, ny;
+  bool trilatSuccess = false;
+
+  // Attempt trilateration only if we have at least 3 valid bases
+  if (count >= 3) {
+    float dist[NUM_BASES], weights[NUM_BASES];
+    for (int i = 0; i < NUM_BASES; i++) {
+      const BaseReading& b = bleScanner.base(i);
+      dist[i] = b.distanceM;
+      if (b.valid) {
+        weights[i] = 1.0f / max(dist[i] * dist[i], 0.01f);
+      } else {
+        weights[i] = 0.0f; // Ignore invalid bases in weighted least squares
+      }
+    }
+
+    trilatSuccess = trilaterate(dist, _coords, weights, nx, ny);
   }
 
-  float nx, ny;
-  if (!trilaterate(dist, _coords, weights, nx, ny)) {
-    _fix.valid = false;
-    return;
+  if (!trilatSuccess) {
+    // Fallback: Use the coordinate of the base with minimum estimated distance
+    float minDist = 1000000.0f;
+    int closestBase = -1;
+    for (int i = 0; i < NUM_BASES; i++) {
+      const BaseReading& b = bleScanner.base(i);
+      if (b.valid && b.distanceM < minDist) {
+        minDist = b.distanceM;
+        closestBase = i;
+      }
+    }
+    
+    if (closestBase != -1) {
+      nx = _coords[closestBase].x;
+      ny = _coords[closestBase].y;
+    } else {
+      _fix.valid = false;
+      return;
+    }
   }
 
   // EMA smoothing on output

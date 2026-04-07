@@ -50,22 +50,6 @@ void Storage::loadConfig(TrackerConfig& cfg) {
   // Path loss
   cfg.pathLossN = prefs.getFloat("pathLossN", DEFAULT_PATH_LOSS_N);
 
-  // Per-base Path loss model
-  for (int i = 0; i < NUM_BASES; i++) {
-    char keyN[12], keyTX[12];
-    snprintf(keyN, sizeof(keyN), "bn%d", i);
-    snprintf(keyTX, sizeof(keyTX), "btx%d", i);
-    cfg.baseN[i]     = prefs.getFloat(keyN,  DEFAULT_PATH_LOSS_N);
-    cfg.baseTxRef[i] = prefs.getFloat(keyTX, (float)DEFAULT_TX_POWER_1M);
-  }
-
-  // Base offsets
-  for (int i = 0; i < NUM_BASES; i++) {
-    char key[12];
-    snprintf(key, sizeof(key), "bo%d", i);
-    cfg.baseOffsets[i] = prefs.getFloat(key, 0.0f);
-  }
-
   Serial.println("[NVS] Config loaded.");
 }
 
@@ -89,20 +73,6 @@ void Storage::saveConfig(const TrackerConfig& cfg) {
   }
 
   prefs.putFloat("pathLossN", cfg.pathLossN);
-
-  for (int i = 0; i < NUM_BASES; i++) {
-    char keyN[12], keyTX[12];
-    snprintf(keyN, sizeof(keyN), "bn%d", i);
-    snprintf(keyTX, sizeof(keyTX), "btx%d", i);
-    prefs.putFloat(keyN,  cfg.baseN[i]);
-    prefs.putFloat(keyTX, cfg.baseTxRef[i]);
-  }
-
-  for (int i = 0; i < NUM_BASES; i++) {
-    char key[12];
-    snprintf(key, sizeof(key), "bo%d", i);
-    prefs.putFloat(key, cfg.baseOffsets[i]);
-  }
 
   Serial.println("[NVS] Config saved.");
 }
