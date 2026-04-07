@@ -1,259 +1,87 @@
-# BLE Indoor Tracking System
+# Indoor BLE Tracker & Asset Management System
 
-**Hardware:** 3× Seeed XIAO nRF52840 (bases) + Seeed XIAO ESP32-C3 + Adafruit BMP390 + 800 mAh LiPo
+A comprehensive indoor positioning solution utilizing ESP32-C3 trackers, nRF52840 beacons, and a centralized Node.js web application for real-time monitoring and asset management.
 
----
+## System Architecture
 
-## Architecture
+The system consists of three main components:
 
-```
-[NRF Base 0]   [NRF Base 1]   [NRF Base 2]
-     │               │               │
-     └───────────────┴───────────────┘
-       BLE advertisements every 100 ms
-       Payload: [ BaseID | TxPower@1m ]
-                        │
-                 [ESP32-C3 Tracker]
-                 ├─ NimBLE scanner → RSSI per base
-                 ├─ Kalman filter  → smoothed RSSI
-                 ├─ Path-loss model→ distance (m)
-                 ├─ WLS trilateration → XY position
-                 ├─ BMP390 → relative altitude → floor
-                 ├─ NVS flash → config + position log
-                 └─ WiFi → WebSocket → Browser dashboard
-```
+1.  **Beacons (nRF52840 Base):** Stationary units that broadcast BLE advertisements every 100ms containing their ID and calibrated TX power.
+2.  **Tracker (ESP32-C3):** A mobile device that scans for beacon signals, calculates distances using a path-loss model, and performs WLS trilateration for XY positioning. It also uses a BMP390 barometer for Z-axis (floor) detection.
+3.  **Web App (Node.js/Express):** A central dashboard for user authentication (JWT), asset categorization, and long-term location history tracking.
+
+### Data Flow
+1. **Beacons** broadcast Manufacturer Data (Company ID 0x0059 + BaseID + TxPower).
+2. **Tracker** scans BLE, calculates distances, and determines coordinates (XY/Z).
+3. **Local Dashboard (Port 80):** Hosted on the ESP32-C3 for real-time tuning and local Map UI.
+4. **Central Web App (Port 3000):** Aggregates data for multi-user management and history.
 
 ---
 
-## Repository Layout
-
-```
-nrf52840_base/
-  nrf52840_base.ino   ← flash to all 3 bases
-  config.h
-
-esp32c3_tracker/
-  esp32c3_tracker.ino ← main sketch
-  config.h
-  ble_scanner.h/.cpp
-  positioning.h/.cpp
-  altimeter.h/.cpp
-  storage.h/.cpp
-  webserver.h/.cpp
-```
+## Hardware Requirements
+- **Tracker:** Seeed Studio XIAO ESP32-C3 + Adafruit BMP390 Barometer.
+- **Beacons:** 3× Seeed Studio XIAO nRF52840.
+- **Standard Wiring (I2C):** SDA=6, SCL=7. BMP390 address is typically `0x77`.
 
 ---
 
-## 1. Base Station Setup (nRF52840)
+## Developer Commands (Arduino CLI)
 
-### Arduino IDE Board Setup
-1. Add board URL: `https://files.seeedstudio.com/arduino/package_seeeduino_boards_index.json`
-2. Board: **Seeed nRF52 Boards → Seeed XIAO nRF52840**
+**Arduino CLI Path:** `arduino-cli`
 
-### Libraries Required
-| Library | Install via |
-|---|---|
-| ArduinoBLE | Arduino Library Manager |
-| ArduinoJson | Arduino Library Manager |
-| InternalFileSystem | Included with Seeed nRF52 BSP |
+### ESP32-C3 Tracker
+- **Compile:**
+  `arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32C3 ./esp32c3_tracker`
+- **Upload:**
+  `arduino-cli upload -p <PORT> --fqbn esp32:esp32:XIAO_ESP32C3 ./esp32c3_tracker`
 
-### Flashing All 3 Bases
-Each base runs **identical firmware**. The Base ID (0, 1, 2) is set at runtime via BLE.
-
-1. Flash `nrf52840_base.ino` to all 3 units
-2. Use a BLE scanner app (e.g. **nRF Connect**) to connect to each base
-3. Find the **Config Service** (`12345678-...`)
-4. Write `0x00`, `0x01`, `0x02` to the **Base ID characteristic** on each unit respectively
-5. Write the **TX Power characteristic** for your calibrated RSSI-at-1m value (default: `-59` = `0xC5` as signed byte)
-
-### TX Power Calibration (Important for accuracy)
-1. Hold your phone 1 metre from the base
-2. Read RSSI in nRF Connect
-3. Write that value to the TX Power characteristic
-4. Repeat for each base — values may differ slightly per unit
+### nRF52840 Base (Beacon)
+- **Compile:**
+  `arduino-cli compile --fqbn Seeeduino:nrf52:xiaonRF52840 ./nrf52840_base`
+- **Upload:**
+  `arduino-cli upload -p <PORT> --fqbn Seeeduino:nrf52:xiaonRF52840 ./nrf52840_base`
 
 ---
 
-## 2. Tracker Setup (ESP32-C3)
+## Critical Serial Commands (115200 baud)
 
-### Arduino IDE Board Setup
-1. Add board URL: `https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json`
-2. Board: **ESP32 Arduino → XIAO_ESP32C3**
+### Tracker (XIAO C3)
+- `WIFI <ssid> <pass>`: Connects to WiFi. Supports spaces in SSID.
+- `KNOWNDIST <id> <m>`: Calibrates base offset given a known distance.
+- `REGFLOOR <n>`: Registers current altitude as floor level `n`.
+- `STATUS`: Dumps current coordinates, base visibility, and WiFi state.
+- `BASE <id> <x> <y>`: Set base station coordinate in meters.
+- `PATHLOSS <n>`: Set path-loss exponent (typically 2.0 to 3.5).
 
-### Libraries Required
-| Library | Install via |
-|---|---|
-| NimBLE-Arduino | Arduino Library Manager |
-| ESPAsyncWebServer | GitHub: me-no-dev/ESPAsyncWebServer |
-| AsyncTCP | GitHub: me-no-dev/AsyncTCP |
-| Adafruit BMP3XX | Arduino Library Manager |
-| ArduinoJson | Arduino Library Manager |
-
-### Wiring (BMP390 → ESP32-C3)
-```
-BMP390  →  XIAO ESP32-C3
-VIN     →  3.3V
-GND     →  GND
-SDA     →  D4 (GPIO6)
-SCL     →  D5 (GPIO7)
-SDO     →  3.3V (sets I2C address to 0x77)
-```
-
-### First-Time Configuration
-Set WiFi credentials via Serial (115200 baud) **before** first boot, or edit `config.h`:
-
-```
-WIFI MyNetworkName MyPassword
-```
-
-The device will reboot and connect. The dashboard IP is printed to Serial.
+### Base (XIAO nRF52)
+- `SETID <0|1|2>`: Required for first boot or after `RESET`.
+- `RESET`: Clears ID and enters breathing-LED provisioning mode.
 
 ---
 
-## 3. Coordinate System Setup
+## Web Application Setup
 
-The tracker uses a simple 2D Cartesian coordinate system in **metres**.
+The central web app provides user authentication and asset management.
 
-```
-         Y
-         │
-     B2  │
-    ╱    │
-   ╱     │
-B0───────────── X
-         B1
-```
+### Installation
+1. Navigate to `web-app/`
+2. Install dependencies: `npm install`
+3. Start the server: `npm start`
+4. Access via: `http://localhost:3000`
 
-### Setting Base Coordinates
-
-#### Via Serial
-```
-BASE 0 0.0 0.0
-BASE 1 5.0 0.0
-BASE 2 2.5 4.3
-```
-
-#### Via Web Dashboard
-In the **Configuration** panel: type `id,x,y` (e.g. `1,5.0,0.0`) and click **Set Base Coord**.
-
-> **Tip:** Measure physical distances between base mounting points with a tape measure. Place bases in a triangle — wider spacing = better accuracy. Minimum recommended separation: 2 m. Optimal: 3–8 m.
+### Key Dependencies
+- `express`, `bcryptjs`, `jsonwebtoken`, `pug`.
 
 ---
 
-## 4. Floor Height Calibration
-
-This must be done once per environment. The BMP390 measures **relative pressure change from boot**.
-
-### Procedure
-1. Start the tracker on Floor 0 (ground floor / reference floor)
-2. Wait 30 seconds for the barometer to stabilise
-3. Send: `REGFLOOR 0` — this registers floor 0 at 0.0 m (boot reference)
-4. Walk to Floor 1
-5. Wait 10 seconds
-6. Send: `REGFLOOR 1`
-7. Repeat for each floor
-8. Set total floor count: `FLOORS 3`
-
-Alternatively, use the **Register Current Alt as Floor** button in the dashboard.
-
-Floor heights are persisted to NVS and survive reboots.
+## Positioning Logic
+- **XY Positioning:** Uses Weighted Least Squares (WLS) trilateration based on Kalman-filtered RSSI values.
+- **Z-Axis:** Uses relative barometer delta from the BMP390 sensor to determine the current floor level.
+- **Local Tuning:** The ESP32-C3 hosts a web server on Port 80 (`dashboard.cpp`) for real-time calibration and visual feedback.
 
 ---
 
-## 5. Path-Loss Calibration (Improves XY accuracy)
-
-The default path-loss exponent `n = 2.5` works for typical office environments. To calibrate:
-
-1. Place the tracker at known positions (measured with tape measure)
-2. Observe the reported position on the dashboard
-3. Adjust `n` via: `PATHLOSS 2.8` (increase `n` if distances read too short; decrease if too long)
-4. Typical ranges: `n = 2.0` (open space) → `n = 3.5` (heavy obstructions)
-
----
-
-## 6. Web Dashboard
-
-After connecting to WiFi, open a browser on the same network and navigate to the IP shown in Serial output (e.g. `http://192.168.1.42`).
-
-### Dashboard Features
-| Panel | Description |
-|---|---|
-| Position Map | Live XY canvas with base markers, distance circles, position dot, trail |
-| Position | X, Y coordinates in metres, altitude, accuracy estimate, floor badge |
-| Base Stations | Per-base RSSI, estimated distance, signal quality bar |
-| Configuration | Set path-loss `n`, base coordinates, register floor heights |
-| Display | Toggle trail and auto-scale |
-
-### Position Log Download
-Navigate to `http://<ip>/log` for a JSON array of all logged fixes.
-
----
-
-## 7. Serial Command Reference
-
-| Command | Description |
-|---|---|
-| `WIFI <ssid> <pass>` | Set WiFi credentials (saves + reboots) |
-| `BASE <id> <x> <y>` | Set base station coordinate |
-| `REGFLOOR <n>` | Register current altitude as floor n boundary |
-| `FLOORS <n>` | Set total floor count |
-| `PATHLOSS <n>` | Set path-loss exponent (1.5–5.0) |
-| `CALGROUND` | Re-calibrate barometer to current pressure |
-| `CLEARLOG` | Erase NVS position log |
-| `STATUS` | Print full system state |
-| `REBOOT` | Restart ESP32-C3 |
-
----
-
-## 8. Accuracy Expectations
-
-| Condition | Expected XY Accuracy |
-|---|---|
-| 3 bases, good geometry, open room | 0.5 – 1.5 m |
-| 3 bases, walls/obstacles between | 1.5 – 3.0 m |
-| Only 2 bases visible | No fix (requires 3) |
-
-**Altitude / floor accuracy:** ±0.25 m typical → reliable floor detection in buildings with ≥2.5 m floor height.
-
-### Tips for Better Accuracy
-- Mount bases at consistent heights (same Z level as tracker, or all elevated equally)
-- Maximise triangle area — avoid collinear placement
-- Keep bases away from metal objects and WiFi access points
-- Calibrate TX power per base unit
-- Use `n = 2.0` to start, then tune upward if distances over-read
-
----
-
-## 9. BLE GATT Service Reference
-
-### Base Station Config Service
-UUID: `12345678-1234-1234-1234-123456789abc`
-
-| Characteristic | UUID suffix | Type | Description |
-|---|---|---|---|
-| Base ID | `...9ab0` | uint8 R/W | 0, 1, or 2 |
-| TX Power | `...9ab1` | int8 R/W | RSSI at 1 m (dBm) |
-| Adv Interval | `...9ab2` | uint16 R/W | milliseconds |
-
----
-
-## 10. Troubleshooting
-
-**No bases detected:**
-- Verify all 3 bases are powered and LED is blinking
-- Check that Base IDs 0/1/2 have been assigned correctly
-- Ensure bases are within ~10 m of tracker
-
-**Position jumping:**
-- Increase `PATHLOSS` value (multipath in dense environment)
-- Check for metal shelving or thick walls between bases and tracker
-- Ensure bases are not co-located (need geometric spread)
-
-**Wrong floor detected:**
-- Re-run floor calibration (make sure to wait for pressure to stabilise after walking between floors)
-- Run `CALGROUND` while on floor 0
-
-**WebSocket not connecting:**
-- Confirm tracker and browser are on the same WiFi network
-- Try `http://<ip>/` directly (not HTTPS)
-- Check Serial output for WiFi connection status
+## Accuracy Expectations
+- **Open Space:** 0.5m – 1.5m accuracy.
+- **Obstructed:** 1.5m – 3.0m accuracy.
+- **Floor Detection:** Reliable within building environments (±0.25m typical precision).

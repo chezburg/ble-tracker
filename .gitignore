@@ -1,2 +1,26 @@
-# Claude Code internal files
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env
+
+# Arduino/ESP32
+build/
+*.bin
+*.elf
+*.map
+.vscode/
+
+# Project Clean Up
 .claude/
+.junie/
+AGENTS.md
+arduino_cli_path.txt
+mnt/
+test_w/
+bermuda-main/
+
+# OS
+.DS_Store
+Thumbs.db
