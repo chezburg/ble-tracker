@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>St. Joseph Hospital Asset Tracker Inventory</title>
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <link rel="icon" type="image/x-icon" href="st_joes_logo_curved_edges.png">
+
+    <style>
+        /* Base layout: Flexbox splits the screen between the main view and the admin sidebar */
+        body { font-family: sans-serif; margin: 0; display: flex; background-color: #f8f9fa; height: 100vh; overflow: hidden; }
+
+        .main-container { flex: 1; padding: 30px; overflow-y: auto; }
+        .header-banner { background: #0056b3; color: white; padding: 25px; border-radius: 8px; margin-bottom: 30px; }
+
+        /* Sidebar Styling (Admin Panel) */
+        .admin-panel { width: 350px; background: #2c3e50; color: white; height: 100vh; padding: 25px; box-sizing: border-box; overflow-y: auto; border-left: 4px solid #3498db; }
+        .admin-section { margin-bottom: 25px; }
+        .admin-section h2 { font-size: 16px; color: #3498db; margin-bottom: 15px; border-bottom: 1px solid #3e4f5f; padding-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+
+        /* Stats & Feed cards in the sidebar */
+        .status-card { background: #3e4f5f; padding: 12px; border-radius: 6px; font-size: 13px; margin-bottom: 10px; }
+        .activity-feed { font-size: 11px; max-height: 150px; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 10px; border-radius: 4px; }
+        .activity-item { padding: 5px 0; border-bottom: 1px solid #4e5f6f; color: #bdc3c7; }
+
+        /* Form Inputs for adding new trackers */
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; font-size: 11px; margin-bottom: 4px; color: #bdc3c7; }
+        .form-group input, .form-group select { width: 100%; padding: 10px; border: none; border-radius: 4px; background: #3e4f5f; color: white; box-sizing: border-box; font-size: 13px; }
+        .submit-btn { width: 100%; background: #28a745; color: white; border: none; padding: 12px; border-radius: 4px; cursor: pointer; font-weight: bold; transition: background 0.2s; }
+        .submit-btn:hover { background: #218838; }
+        .secondary-btn { background: #3498db; margin-top: 5px; font-size: 12px; }
+
+        /* Asset Grid: Cards automatically wrap based on screen width */
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 20px; }
+        .card { background: white; border: 1px solid #ddd; padding: 20px; border-radius: 8px; text-align: center; box-shadow: 0 2px 5px rgba(0,0,0,0.05); cursor: pointer; transition: transform 0.2s; position: relative;}
+        .card:hover { transform: translateY(-3px); border-color: #3498db; }
+
+        /* Status Dot Logic: Green pulse for active connections, Red for dead/offline */
+        .status-indicator { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+        .status-online { background-color: #28a745; box-shadow: 0 0 0 rgba(40, 167, 69, 0.4); animation: pulse-green 2s infinite; }
+        .status-offline { background-color: #dc3545; }
+
+        @keyframes pulse-green {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(40, 167, 69, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(40, 167, 69, 0); }
+        }
+
+        .card-header { display: flex; align-items: center; justify-content: center; margin-bottom: 10px; }
+        .delete-btn { background: #dc3545; color: white; border: none; padding: 8px 15px; border-radius: 4px; cursor: pointer; margin-top: 15px; width: 100%; font-size: 12px; }
+
+        /* Modal Overlay for viewing Asset Tracking History */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: center; }
+        .modal-content { background: white; width: 80%; max-width: 800px; max-height: 80vh; border-radius: 8px; padding: 30px; position: relative; overflow-y: auto; }
+        .close-modal { position: absolute; top: 15px; right: 20px; font-size: 25px; cursor: pointer; color: #666; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        table th, table td { text-align: left; padding: 12px; border-bottom: 1px solid #eee; }
+        table th { background: #f4f4f4; color: #333; }
+    </style>
+</head>
+<body>
+
+<div class="main-container">
+    <div class="header-banner">
+        <h1 style="margin:0;">Asset Inventory</h1>
+        <p style="margin:5px 0 0 0; opacity: 0.8;">St. Joseph's IT Management Console</p>
+    </div>
+
+    <div style="display: flex; gap: 15px; margin-bottom: 30px;">
+        <input type="text" id="inventory-search" placeholder="Search by name or ID..." style="flex:1; padding:12px; border-radius:4px; border:1px solid #ddd;" oninput="filterAssets()">
+        <select id="type-filter" onchange="filterAssets()" style="padding:12px; border-radius:4px; border:1px solid #ddd;">
+            <option value="all">All Types</option>
+            <option value="wheelchairs">Wheelchairs</option>
+            <option value="iv pumps">IV Pumps</option>
+            <option value="beds">Beds</option>
+        </select>
+    </div>
+
+    <div id="asset-display" class="grid"></div>
+</div>
+
+<div id="history-modal" class="modal-overlay">
+    <div class="modal-content">
+        <span class="close-modal" onclick="closeModal()">&times;</span>
+        <h2 id="modal-title" style="color: #0056b3; margin-top: 0;">Asset History</h2>
+        <table id="history-table">
+            <thead><tr><th>Location</th><th>Date/Time</th></tr></thead>
+            <tbody id="history-body"></tbody>
+        </table>
+    </div>
+</div>
+
+<div class="admin-panel">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
+        <a href="ITMain.html" style="color: #bdc3c7; text-decoration: none; font-size: 12px;">
+            <i class="fa fa-arrow-left"></i> Map View
+        </a>
+        <button onclick="logout()" style="background: none; border: none; color: #e74c3c; cursor: pointer; font-size: 12px;">
+            <i class="fa fa-sign-out"></i> Logout
+        </button>
+    </div>
+
+    <div class="admin-section">
+        <h2><i class="fa fa-heartbeat"></i> System Health</h2>
+        <div class="status-card">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                <span>Server:</span>
+                <span style="color: #28a745;">Online</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+                <span>Total Assets:</span>
+                <span id="stat-total">0</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="admin-section">
+        <h2><i class="fa fa-bolt"></i> Quick Actions</h2>
+        <button class="submit-btn secondary-btn" onclick="showAssets()">
+            <i class="fa fa-refresh"></i> Refresh Database
+        </button>
+        <button class="submit-btn secondary-btn" onclick="window.print()" style="background: #7f8c8d;">
+            <i class="fa fa-file-text-o"></i> Export Report
+        </button>
+    </div>
+
+    <div class="admin-section">
+        <h2><i class="fa fa-plus-circle"></i> Register Asset</h2>
+        <form id="assetForm">
+            <div class="form-group"><label>Asset ID</label><input type="text" id="new-id" required placeholder="e.g. BLE-101"></div>
+            <div class="form-group"><label>Display Name</label><input type="text" id="new-name" required placeholder="e.g. Wheelchair A"></div>
+            <div class="form-group">
+                <label>Category</label>
+                <select id="new-category">
+                    <option value="general">General</option>
+                    <option value="wheelchairs">Wheelchairs</option>
+                    <option value="iv pumps">IV Pumps</option>
+                    <option value="beds">Beds</option>
+                </select>
+            </div>
+            <button type="submit" class="submit-btn">Add to Inventory</button>
+        </form>
+    </div>
+
+    <div class="admin-section">
+        <h2><i class="fa fa-history"></i> Global Activity</h2>
+        <div class="activity-feed" id="global-activity">
+            <div class="activity-item">System initialized...</div>
+            <div class="activity-item">Awaiting asset pings...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Grab auth token from local storage to allow API access
+    const token = localStorage.getItem('token');
+    let activeAssetId = null;
+
+    function logout() {
+        if (confirm("Log out of session?")) {
+            localStorage.removeItem('token');
+            window.location.href = 'Menu Screen.html';
+        }
+    }
+
+    /**
+     * FETCHING & RENDERING
+     * Hits the Node.js backend to get the full list of assets stored in the DB.
+     */
+    async function showAssets() {
+        const display = document.getElementById('asset-display');
+        if (!token) return;
+
+        try {
+            const response = await fetch('http://localhost:3000/api/assets', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await response.json();
+
+            if (response.ok) {
+                display.innerHTML = '';
+                document.getElementById('stat-total').innerText = data.length;
+
+                data.forEach(item => {
+                    const card = document.createElement('div');
+                    card.className = 'card';
+                    card.onclick = () => openHistory(item.id, item.name);
+
+                    // HEARTBEAT LOGIC:
+                    // We check the timestamp of the last ping. If it's within the last hour,
+                    // we consider the hardware "Online". Otherwise, it's marked "Offline".
+                    const lastSeen = item.lastUpdated ? new Date(item.lastUpdated) : new Date();
+                    const now = new Date();
+                    const diffInHours = (now - lastSeen) / (1000 * 60 * 60);
+
+                    let statusClass = diffInHours <= 1 ? 'status-online' : 'status-offline';
+                    let statusText = diffInHours <= 1 ? 'Active' : 'Offline';
+
+                    const cat = (item.category || 'general').toLowerCase();
+
+                    // Custom data attributes help the filterAssets function work without new API calls
+                    card.setAttribute('data-name', item.name.toLowerCase());
+                    card.setAttribute('data-id', item.id.toLowerCase());
+                    card.setAttribute('data-type', cat);
+
+                    card.innerHTML = `
+                        <div class="card-header">
+                            <span class="status-indicator ${statusClass}" title="${statusText}"></span>
+                            <strong>${item.name}</strong>
+                        </div>
+                        <div style="font-size: 12px; color: #666;">ID: ${item.id}</div>
+                        <div style="font-size: 10px; color: #3498db; text-transform: uppercase; margin-top: 5px;">${cat}</div>
+                        <div style="font-size: 9px; color: #999; margin-top: 10px;">Last Ping: ${lastSeen.toLocaleTimeString()}</div>
+                        <button class="delete-btn" onclick="event.stopPropagation(); deleteAsset('${item.id}')">Remove</button>
+                    `;
+                    display.appendChild(card);
+                });
+                // Re-apply current search/filter settings to the new data
+                filterAssets();
+            }
+        } catch (e) {
+            display.innerHTML = "<p style='text-align:center; color:red;'>Error connecting to IT Backend.</p>";
+        }
+    }
+
+    /**
+     * SEARCH & FILTERING (Local)
+     * Filters the already-rendered cards based on search input and dropdown category.
+     */
+    function filterAssets() {
+        const query = (document.getElementById('inventory-search').value || "").toLowerCase().trim();
+        const type = document.getElementById('type-filter').value.toLowerCase();
+        const cards = document.querySelectorAll('.card');
+        let visibleCount = 0;
+
+        cards.forEach(card => {
+            const matchSearch = card.getAttribute('data-name').includes(query) || card.getAttribute('data-id').includes(query);
+            const matchType = (type === 'all' || card.getAttribute('data-type') === type);
+
+            // Toggle visibility based on matching both conditions
+            card.style.display = (matchSearch && matchType) ? "block" : "none";
+            if (matchSearch && matchType) visibleCount++;
+        });
+
+        // Handle the "No Results" case for better UX
+        const display = document.getElementById('asset-display');
+        let noMsg = document.getElementById('no-results-msg');
+        if (visibleCount === 0 && cards.length > 0) {
+            if (!noMsg) {
+                noMsg = document.createElement('p');
+                noMsg.id = 'no-results-msg';
+                noMsg.style.cssText = "grid-column: 1/-1; text-align: center; color: #888; margin-top: 50px;";
+                noMsg.innerText = "No matching assets found.";
+                display.appendChild(noMsg);
+            }
+        } else if (noMsg) noMsg.remove();
+    }
+
+    /**
+     * ASSET HISTORY MODAL
+     * Fetches the movement trail for a specific BLE tracker and shows it in the table.
+     */
+    async function openHistory(id, name) {
+        activeAssetId = id;
+        document.getElementById('modal-title').innerText = `Track Log: ${name}`;
+        document.getElementById('history-modal').style.display = 'flex';
+        refreshHistory();
+    }
+
+    function closeModal() { document.getElementById('history-modal').style.display = 'none'; }
+
+    async function refreshHistory() {
+        if (!activeAssetId) return;
+        const tbody = document.getElementById('history-body');
+        tbody.innerHTML = '<tr><td colspan="2">Fetching logs...</td></tr>';
+        try {
+            const res = await fetch(`http://localhost:3000/api/history/${activeAssetId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await res.json();
+            tbody.innerHTML = data.length ? '' : '<tr><td colspan="2">No movement recorded.</td></tr>';
+            data.forEach(entry => {
+                tbody.innerHTML += `<tr><td>${entry.location || 'Unknown'}</td><td>${new Date(entry.lastUpdated).toLocaleString()}</td></tr>`;
+            });
+        } catch (err) { tbody.innerHTML = '<tr><td colspan="2" style="color:red">Log sync failed.</td></tr>'; }
+    }
+
+    /**
+     * ADDING NEW ASSETS
+     * Takes form input and POSTs it to the server.
+     */
+    document.getElementById('assetForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const assetData = {
+            id: document.getElementById('new-id').value,
+            name: document.getElementById('new-name').value,
+            category: document.getElementById('new-category').value
+        };
+
+        const res = await fetch('http://localhost:3000/api/assets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify(assetData)
+        });
+
+        if (res.ok) {
+            showAssets(); // Refresh grid
+            document.getElementById('assetForm').reset();
+            // Update the sidebar activity feed for instant visual feedback
+            const feed = document.getElementById('global-activity');
+            feed.innerHTML = `<div class="activity-item">Registered ${assetData.name}</div>` + feed.innerHTML;
+        }
+    });
+
+    /**
+     * DELETE LOGIC
+     * Removes an asset record from the database.
+     */
+    async function deleteAsset(id) {
+        if (!confirm(`Permanently remove ${id}?`)) return;
+        await fetch(`http://localhost:3000/api/assets/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        showAssets();
+    }
+
+    // Trigger initial data load when the window finishes loading
+    window.onload = showAssets;
+</script>
+</body>
+</html>

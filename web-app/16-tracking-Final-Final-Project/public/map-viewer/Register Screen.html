@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>St. Joeseph Hospital Asset Tracker Register</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+  <link rel="stylesheet" type="text/css" href="Menu_stylesheet.css">
+  <link rel="icon" type="image/x-icon" href="st_joes_logo_curved_edges.png">
+</head>
+
+<body>
+<form id="RegisterForm">
+  <div class="imgcontainer">
+    <img src="st_joes_logo_curved_edges.png" alt="Avatar" class="avatar">
+    <div class="title">Register for Asset Tracker</div>
+  </div>
+  <div class="container">
+    <label for="username"><b>Enter a Username</b></label>
+    <input type="text" placeholder="Enter Username" id="username" required>
+    <label for="password"><b>Enter a Password</b></label>
+    <input type="password" placeholder="Enter Password" id="password" required>
+    <label><b>Staff Type:</b></label><br>
+    <input type="checkbox" id="it_staff"> <label for="it_staff">IT Staff</label>
+    <button type="submit">Create Account</button>
+    <div id="message"></div>
+  </div>
+</form>
+<script>
+
+  //Receives data from HTML ID=RegisterForm (Info Entered)
+  const registerForm = document.getElementById('RegisterForm');
+  //Receives the message from backend --> Used for errors
+  const messageDiv = document.getElementById('message');
+  //Extracts the data const registerForm
+  registerForm.addEventListener('submit', async (e) => {
+    //Stops it from reloading
+    e.preventDefault();
+    //Determine role based on checkbox --> Admin if checked, user if not
+    const roleValue = document.getElementById('it_staff').checked ? "admin" : "user";
+    //Saves registration data
+    const registrationData = {
+      username: document.getElementById('username').value,
+      password: document.getElementById('password').value,
+      role: roleValue
+    };
+    try {
+      //Connects to Backend to register
+      const response = await fetch('http://localhost:3000/api/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(registrationData)
+      });
+      const result = await response.json();
+
+      //If the Backend says data looks good
+      if (response.ok) {
+        messageDiv.textContent = result.message + " Redirecting...";
+        messageDiv.style.color = "green";
+        registerForm.reset();
+        //Redirects to Menu Screen Page after a 2000ms delay
+        setTimeout(() => {
+          window.location.href = "Menu Screen.html"; // Change this to your actual login page
+        }, 2000);
+      } else {
+        //If Backend is not satisfied with information/or it isn't running
+        messageDiv.textContent = result.message;
+        messageDiv.style.color = "red";
+      }
+    } catch (error) {
+      //Prints in console if there is an error
+      console.error("Fetch error:", error);
+      //Prints error on screen
+      messageDiv.textContent = "Connection error. Ensure backend is running on port 3000.";
+      messageDiv.style.color = "red";
+    }
+  });
+</script>
+</body>
+</html>

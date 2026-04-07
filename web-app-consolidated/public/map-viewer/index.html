@@ -58,8 +58,8 @@
     // Function to fetch data from backend
     async function updatePosition() {
         try {
-            const res = await fetch("http://192.168.1.100:3000/position");
-            //Replace with your server IP
+            const res = await fetch("/position");
+            // Uses relative path to talk to the same server hosting the page
 
             const data = await res.json();
 

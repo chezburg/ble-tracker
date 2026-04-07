@@ -14,6 +14,7 @@
 #include "storage.h"
 #include <WiFi.h>
 #include <WebServer.h>
+#include <HTTPClient.h>
 #include <ArduinoJson.h>
 
 extern TrackerConfig activeCfg;
@@ -388,9 +389,9 @@ void Dashboard::begin(const char* ssid, const char* pass) {
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.printf("\n[WIFI] Connected! IP: %s\n", WiFi.localIP().toString().c_str());
+    Serial.println(WiFi.localIP());
   } else {
-    Serial.println("\n[WIFI] Failed to connect. Check credentials.");
+    Serial.println("FAIL");
     return;
   }
 
@@ -532,6 +533,41 @@ void Dashboard::setupRoutes() {
 }
 
 // ────────────────────────────────────────────────────────────────
+void Dashboard::pushUpdate() {
+  const PositionFix& fix = positioning.latest();
+  if (!fix.valid) return;
+
+  WiFiClient client;
+  HTTPClient http;
+
+  if (http.begin(client, DEFAULT_SERVER_URL)) {
+    http.addHeader("Content-Type", "application/json");
+
+    JsonDocument doc;
+    doc["x"] = fix.x;
+    doc["y"] = fix.y;
+    doc["floor"] = fix.floor;
+
+    String json;
+    serializeJson(doc, json);
+
+    int code = http.POST(json);
+    if (code > 0) {
+      Serial.printf("POST:%d\n", code);
+    } else {
+      Serial.printf("ERR:%s\n", http.errorToString(code).c_str());
+    }
+    http.end();
+  }
+}
+
+// ────────────────────────────────────────────────────────────────
 void Dashboard::update() {
   httpServer.handleClient();
+
+  // Push to central server at defined interval
+  if (WiFi.status() == WL_CONNECTED && (millis() - _lastPush > (activeCfg.pingIntervalS * 1000))) {
+    _lastPush = millis();
+    pushUpdate();
+  }
 }
