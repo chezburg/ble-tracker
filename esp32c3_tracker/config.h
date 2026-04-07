@@ -52,6 +52,7 @@
 #define NVS_NS_CONFIG            "tracker_cfg"
 
 // ── Web server ─────────────────────────────────────────────────
+#define TRACKER_ID               "POC-01"    // Unique ID for this tracker
 #define WEB_SERVER_PORT          80
 #define WS_PORT                  81
 #define WS_PUSH_INTERVAL_MS      500         // 2 Hz

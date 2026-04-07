@@ -544,9 +544,10 @@ void Dashboard::pushUpdate() {
     http.addHeader("Content-Type", "application/json");
 
     JsonDocument doc;
+    doc["id"] = TRACKER_ID; // Include the unique Tracker ID
     doc["x"] = fix.x;
     doc["y"] = fix.y;
-    doc["floor"] = fix.floor;
+    doc["floor"] = altimeter.getFloor(); // Use calculated floor
 
     String json;
     serializeJson(doc, json);
