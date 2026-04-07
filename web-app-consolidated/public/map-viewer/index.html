@@ -38,9 +38,29 @@
         crs: L.CRS.Simple,
         minZoom: 6.80
     });
-    var bounds = [[0,0], [8.5,11]]; //bounds are set like a4 paper, the size of the png scale is 1:100 inches like the drawing
-    var image = L.imageOverlay('ACEB 2440 Prototype Testing Map - calibrated left bottom.png', bounds).addTo(map);
-    map.fitBounds(bounds);
+    
+    // Bounds: A4 paper aspect ratio 1:1 scale (11x8.5 units)
+    var bounds = [[0,0], [8.5,11]]; 
+    var mapImages = {
+        0: 'ACEB 2440 Prototype Testing Map - calibrated left bottom.png',
+        1: 'ACEB 2440 Prototype Testing Map - calibrated left bottom.png' // Change to South PNG when available
+    };
+
+    var currentFloor = -1;
+    var imageOverlay = null;
+
+    function setMapFloor(floor) {
+        if (currentFloor === floor) return;
+        currentFloor = floor;
+        
+        const imageUrl = mapImages[floor] || mapImages[0];
+        if (imageOverlay) map.removeLayer(imageOverlay);
+        
+        imageOverlay = L.imageOverlay(imageUrl, bounds).addTo(map);
+        map.fitBounds(bounds, { padding: [0, 0] });
+    }
+
+    setMapFloor(0); // Initial floor
 
     var marker = L.marker([2.75,3]).addTo(map); //this reference point is the corner of the actual room, it's formatted as [y,x] coordinates b/c leaflet started as world maps
 
@@ -59,12 +79,17 @@
     async function updatePosition() {
         try {
             const res = await fetch("/position");
-            // Uses relative path to talk to the same server hosting the page
-
             const data = await res.json();
 
+            // Automatic floor switching (manual override via tabs still works on refresh)
+            if (data.floor !== undefined) {
+                setMapFloor(data.floor);
+            }
+
             // Move marker (Leaflet uses [y, x])
-            marker.setLatLng([data.y, data.x]);
+            if (data.x !== undefined && data.y !== undefined) {
+                marker.setLatLng([data.y, data.x]);
+            }
 
             // Update floor display if exists
             if (document.getElementById("floorText")) {
