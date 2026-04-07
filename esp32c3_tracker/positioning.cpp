@@ -27,13 +27,27 @@ void Positioning::begin() {
     _floorHeights[i] = (float)i * 3.0f;   // default 3 m per floor
 
   _fix.valid = false;
+  _stableFix = false;
+  _stabilityCounter = 0;
   Serial.println("[POS] Positioning engine ready.");
+}
+
+void Positioning::resetFix() {
+  _fix.valid = false;
+  _stableFix = false;
+  _stabilityCounter = 0;
+  _firstFix = true;
+  _historyIdx = 0;
+  _historyFull = false;
+  Serial.println("[POS] Fix reset. Dialing in startup sequence...");
 }
 
 // ────────────────────────────────────────────────────────────────
 void Positioning::update() {
   if (!bleScanner.hasValidFix()) {
     _fix.valid = false;
+    _stableFix = false;
+    _stabilityCounter = 0;
     return;
   }
 
@@ -74,8 +88,21 @@ void Positioning::update() {
       ny = _coords[closestBase].y;
     } else {
       _fix.valid = false;
+      _stableFix = false;
+      _stabilityCounter = 0;
       return;
     }
+  }
+
+  // Dial-in Startup sequence: wait for multiple fixes to stabilise filters
+  if (!_stableFix) {
+    _stabilityCounter++;
+    if (_stabilityCounter >= 5) { // Require 5 samples to "dial in"
+      _stableFix = true;
+      Serial.println("[POS] Position stabilized.");
+    }
+    // During dial-in, we update _smoothX/Y but don't mark fix as valid for output
+    // This primes the EMA filters.
   }
 
   // EMA smoothing on output
@@ -91,7 +118,7 @@ void Positioning::update() {
   _fix.x           = _smoothX;
   _fix.y           = _smoothY;
   _fix.timestampMs = millis();
-  _fix.valid       = true;
+  _fix.valid       = _stableFix;
 
   // Accuracy estimate: RMS of residuals
   float rms = 0;
@@ -106,11 +133,13 @@ void Positioning::update() {
   _fix.accuracy    = sqrtf(rms / NUM_BASES);
 
   // Update averaging history
-  _history[_historyIdx] = _fix;
-  _historyIdx++;
-  if (_historyIdx >= 3) {
-    _historyIdx = 0;
-    _historyFull = true;
+  if (_fix.valid) {
+    _history[_historyIdx] = _fix;
+    _historyIdx++;
+    if (_historyIdx >= 3) {
+      _historyIdx = 0;
+      _historyFull = true;
+    }
   }
 }
 

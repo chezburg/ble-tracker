@@ -24,6 +24,7 @@ class Positioning {
 public:
   void  begin();
   void  update();   // call at POSITION_UPDATE_HZ
+  void  resetFix();  // Clear fix history and start recalibration sequence
 
   void  setBaseCoord(uint8_t id, float x, float y);
   const BaseCoord& getBaseCoord(uint8_t id) const { return _coords[id]; }
@@ -34,6 +35,7 @@ public:
   uint8_t getFloorCount() const  { return _floorCount; }
 
   const PositionFix& latest() const { return _fix; }
+  bool  isStable() const { return _stableFix; }
   PositionFix getAveragedFix() const;
 
 private:
@@ -59,6 +61,10 @@ private:
   bool        _historyFull = false;
   float       _smoothX = 0, _smoothY = 0;
   bool        _firstFix = true;
+
+  // Startup dialing/stability
+  uint8_t     _stabilityCounter = 0;
+  bool        _stableFix = false;
 };
 
 extern Positioning positioning;
