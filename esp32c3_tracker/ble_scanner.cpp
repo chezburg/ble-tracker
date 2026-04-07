@@ -90,35 +90,16 @@ void BLEScanner::onResult(const NimBLEAdvertisedDevice* dev) {
     b.distHistCount++;
   }
 
-  // Calculate moving-window average of distances using Bermuda style local minimum
-  // In Bermuda: local_min tracks the minimum distance going back in time.
-  // It sums this monotonically decreasing local_min over the history to weight closer readings more.
+  // Calculate moving-window average of distances
   float distTotal = 0.0f;
-  float localMin = rssiDistanceRaw;
-  
-  // Iterate backwards in time: newest sample is at (b.distHistIdx - 1)
-  int currentIndex = b.distHistIdx - 1;
-  if (currentIndex < 0) currentIndex = RSSI_HISTORY_LEN - 1;
-  
   for (int i = 0; i < b.distHistCount; i++) {
-    float distance = b.distHistory[currentIndex];
-    if (distance <= localMin) {
-      localMin = distance;
-    }
-    distTotal += localMin;
-    
-    // Move backwards
-    currentIndex--;
-    if (currentIndex < 0) currentIndex = RSSI_HISTORY_LEN - 1;
+    distTotal += b.distHistory[i];
   }
   
-  float movavg = (b.distHistCount > 0) ? (distTotal / b.distHistCount) : localMin;
+  float movavg = (b.distHistCount > 0) ? (distTotal / (float)b.distHistCount) : rssiDistanceRaw;
   
-  if (movavg < rssiDistanceRaw) {
-    b.distanceM = movavg;
-  } else {
-    b.distanceM = rssiDistanceRaw;
-  }
+  // Standard smoothing: average of windowed readings
+  b.distanceM = movavg;
 }
 
 // ────────────────────────────────────────────────────────────────

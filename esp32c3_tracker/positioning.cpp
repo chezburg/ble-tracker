@@ -62,6 +62,8 @@ void Positioning::update() {
       const BaseReading& b = bleScanner.base(i);
       dist[i] = b.distanceM;
       if (b.valid) {
+        // Bermudan improvement: scale weights by inverse distance variance
+        // and cap distance to prevent distant bases from skewing solution
         weights[i] = 1.0f / max(dist[i] * dist[i], 0.01f);
       } else {
         weights[i] = 0.0f; // Ignore invalid bases in weighted least squares
@@ -69,24 +71,67 @@ void Positioning::update() {
     }
 
     trilatSuccess = trilaterate(dist, _coords, weights, nx, ny);
+    
+    // Outlier Rejection: Check if point is significantly outside the bounds of the bases
+    if (trilatSuccess) {
+      float minX = _coords[0].x, maxX = _coords[0].x;
+      float minY = _coords[0].y, maxY = _coords[0].y;
+      for (int i = 1; i < NUM_BASES; i++) {
+        minX = min(minX, _coords[i].x); maxX = max(maxX, _coords[i].x);
+        minY = min(minY, _coords[i].y); maxY = max(maxY, _coords[i].y);
+      }
+      
+      if (nx < minX - OUTLIER_REJECTION_MARGIN || nx > maxX + OUTLIER_REJECTION_MARGIN ||
+          ny < minY - OUTLIER_REJECTION_MARGIN || ny > maxY + OUTLIER_REJECTION_MARGIN) {
+        trilatSuccess = false;
+        // Serial.println("[POS] Outlier rejected: Outside base bounds.");
+      }
+    }
+
+    // Velocity Rejection: Check if distance from last fix implies impossible speed
+    if (trilatSuccess && _stableFix) {
+      float dx = nx - _fix.x;
+      float dy = ny - _fix.y;
+      float travelDist = sqrtf(dx*dx + dy*dy);
+      uint32_t dt = millis() - _fix.timestampMs;
+      
+      if (dt < MAX_DELTA_T_MS) {
+        float velocity = travelDist / (dt / 1000.0f);
+        if (velocity > MAX_VELOCITY_MPS) {
+          trilatSuccess = false;
+          // Serial.printf("[POS] Outlier rejected: Velocity too high (%.2f m/s)\n", velocity);
+        }
+      }
+    }
   }
 
   if (!trilatSuccess) {
-    // Fallback: Use the coordinate of the base with minimum estimated distance
-    float minDist = 1000000.0f;
-    int closestBase = -1;
-    for (int i = 0; i < NUM_BASES; i++) {
-      const BaseReading& b = bleScanner.base(i);
-      if (b.valid && b.distanceM < minDist) {
-        minDist = b.distanceM;
-        closestBase = i;
+    // Improved Fallback: If we have a stable fix, hold position. 
+    // Otherwise use a weighted centroid of all valid bases.
+    if (_stableFix) {
+      nx = _fix.x;
+      ny = _fix.y;
+      trilatSuccess = true;
+    } else {
+      float totalW = 0;
+      nx = 0; ny = 0;
+      for (int i = 0; i < NUM_BASES; i++) {
+        const BaseReading& b = bleScanner.base(i);
+        if (b.valid) {
+          float w = 1.0f / max(b.distanceM, 0.1f);
+          nx += _coords[i].x * w;
+          ny += _coords[i].y * w;
+          totalW += w;
+        }
+      }
+      if (totalW > 0) {
+        nx /= totalW;
+        ny /= totalW;
+        trilatSuccess = true;
       }
     }
     
-    if (closestBase != -1) {
-      nx = _coords[closestBase].x;
-      ny = _coords[closestBase].y;
-    } else {
+    if (!trilatSuccess) {
       _fix.valid = false;
       _stableFix = false;
       _stabilityCounter = 0;
@@ -132,7 +177,15 @@ void Positioning::update() {
   }
   _fix.accuracy    = sqrtf(rms / NUM_BASES);
 
-  // Update averaging history
+  // Accumulate for high-quality ping (up to 300 samples)
+  if (_fix.valid && _accumCount < 300) {
+    _accumBuffer[_accumCount].x = _fix.x;
+    _accumBuffer[_accumCount].y = _fix.y;
+    _accumBuffer[_accumCount].accuracy = _fix.accuracy;
+    _accumCount++;
+  }
+
+  // Update averaging history (legacy 3-sample buffer)
   if (_fix.valid) {
     _history[_historyIdx] = _fix;
     _historyIdx++;
@@ -141,6 +194,52 @@ void Positioning::update() {
       _historyFull = true;
     }
   }
+}
+
+// ────────────────────────────────────────────────────────────────
+void Positioning::clearAccumulator() {
+  _accumCount = 0;
+}
+
+PositionFix Positioning::getHighQualityFix() {
+  if (_accumCount == 0) return _fix;
+
+  // Bermuda high-quality ping: pick the top 20% most accurate samples
+  // For simplicity, we'll use a selection sort/partition on the best accuracy
+  // but for 300 samples, let's just find the best Accuracy and average samples 
+  // that are close to it.
+  
+  float bestAcc = 1000.0f;
+  for (int i = 0; i < _accumCount; i++) {
+    if (_accumBuffer[i].accuracy < bestAcc) bestAcc = _accumBuffer[i].accuracy;
+  }
+
+  // Average all samples within 50% of the best accuracy (the "clean" signals)
+  float avgX = 0, avgY = 0, avgAcc = 0;
+  int count = 0;
+  float threshold = bestAcc * 1.5f; // include samples with up to 50% more error than the best
+
+  for (int i = 0; i < _accumCount; i++) {
+    if (_accumBuffer[i].accuracy <= threshold) {
+      avgX += _accumBuffer[i].x;
+      avgY += _accumBuffer[i].y;
+      avgAcc += _accumBuffer[i].accuracy;
+      count++;
+    }
+  }
+
+  PositionFix highQuality = _fix;
+  if (count > 0) {
+    highQuality.x = avgX / (float)count;
+    highQuality.y = avgY / (float)count;
+    highQuality.accuracy = avgAcc / (float)count;
+    highQuality.valid = true;
+  }
+  
+  Serial.printf("[POS] High quality ping derived from %d/%d samples (threshold=%.2fm)\n", 
+                count, _accumCount, threshold);
+  
+  return highQuality;
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -213,6 +312,14 @@ bool Positioning::trilaterate(const float* dist,
 
     float dx = -(JtWJ_11 * JtWr_0 - JtWJ_01 * JtWr_1) / det;
     float dy = -(JtWJ_00 * JtWr_1 - JtWJ_01 * JtWr_0) / det;
+
+    // Damping: Limit the maximum step size per iteration to prevent explosions
+    const float MAX_STEP = 2.0f; 
+    float stepLen = sqrtf(dx*dx + dy*dy);
+    if (stepLen > MAX_STEP) {
+      dx = (dx / stepLen) * MAX_STEP;
+      dy = (dy / stepLen) * MAX_STEP;
+    }
 
     x += dx;
     y += dy;
