@@ -19,9 +19,7 @@
  *    REGFLOOR <n>              — register current altitude as floor n
  *    FLOORS <n>                — set total floor count
  *    PATHLOSS <n>              — set path-loss exponent
- *    OFFSET <id> <m>           — set distance offset (metres) for base id
- *    KNOWNDIST <id> <m>        — auto-calibrate offset from known distance
- *    CALPOINT <id> <m>         — calibrate multi-point path-loss model
+ *    PINGINT <n>               — set reporting interval (seconds)
  *    CALGROUND                 — re-calibrate barometer ground reference
  *    CLEARLOG                  — erase flash position log
  *    STATUS                    — print current state
@@ -46,11 +44,11 @@ static uint32_t lastDebugPrint     = 0;
 
 static const uint32_t POSITION_INTERVAL_MS = 1000 / POSITION_UPDATE_HZ;
 static const uint32_t BARO_INTERVAL_MS     = 1000 / BARO_UPDATE_HZ;
-static const uint32_t LOG_INTERVAL_MS      = 5000;   // log every 5 s
 static const uint32_t DEBUG_INTERVAL_MS    = 1000;
 
 // ── Loaded runtime config ────────────────────────────────────────
-static TrackerConfig activeCfg;
+TrackerConfig activeCfg;
+static uint32_t lastPingReport = 0;
 
 // ════════════════════════════════════════════════════════════════
 void setup() {
@@ -122,26 +120,31 @@ void loop() {
   if (now - lastPositionUpdate >= POSITION_INTERVAL_MS) {
     lastPositionUpdate = now;
     positioning.update();
-
-    // Copy floor from altimeter into position fix display
-    // (altimeter is the authoritative Z source)
   }
 
-  // ── Flash log ────────────────────────────────────────────────
-  if (now - lastLogWrite >= LOG_INTERVAL_MS) {
-    lastLogWrite = now;
-    const PositionFix& fix = positioning.latest();
-    if (fix.valid) {
+  // ── High-Quality Ping (Logging + Dashboard) ──────────────────
+  uint32_t pingIntervalMs = (uint32_t)activeCfg.pingIntervalS * 1000;
+  if (now - lastPingReport >= pingIntervalMs) {
+    lastPingReport = now;
+    
+    PositionFix hqFix = positioning.getHighQualityFix();
+    positioning.clearAccumulator();
+
+    if (hqFix.valid) {
       LogEntry entry;
       entry.ts       = now;
-      entry.x        = fix.x;
-      entry.y        = fix.y;
+      entry.x        = hqFix.x;
+      entry.y        = hqFix.y;
       entry.altM     = altimeter.getAltitudeM();
       entry.floor    = altimeter.getFloor();
-      entry.accuracy = fix.accuracy;
+      entry.accuracy = hqFix.accuracy;
       storage.appendLog(entry);
 
-      // LED blink on log write
+      // Dashboard update could be triggered here or keep its own frequency
+      // Let's keep dashboard.update() at 2Hz for responsiveness, but the 
+      // actual data it pushes will be the "latest stable" which is now hqFix
+      
+      // LED blink on ping
       digitalWrite(LED_PIN, LOW);
       delay(20);
       digitalWrite(LED_PIN, HIGH);
@@ -150,6 +153,7 @@ void loop() {
 
   // ── WebSocket push ───────────────────────────────────────────
   dashboard.update();
+
 
   // ── USB serial debug ─────────────────────────────────────────
   if (now - lastDebugPrint >= DEBUG_INTERVAL_MS) {
@@ -267,6 +271,15 @@ void handleSerialCommands() {
       Serial.printf("Path-loss exponent set to %.2f\n", n);
     }
   }
+  else if (line.startsWith("PINGINT ")) {
+    int s = line.substring(8).toInt();
+    if (s >= 1 && s <= 600) {
+      activeCfg.pingIntervalS = s;
+      storage.saveConfig(activeCfg);
+      Serial.printf("Ping interval set to %d seconds\n", s);
+      positioning.clearAccumulator();
+    }
+  }
   else if (line == "CALGROUND") {
     altimeter.calibrateGround();
     Serial.println("Barometer ground reference recalibrated.");
@@ -279,6 +292,7 @@ void handleSerialCommands() {
     Serial.printf("WiFi SSID : %s\n", activeCfg.wifiSsid);
     Serial.printf("IP        : %s\n", WiFi.localIP().toString().c_str());
     Serial.printf("Path loss n: %.2f\n", activeCfg.pathLossN);
+    Serial.printf("Ping Int  : %d s\n", activeCfg.pingIntervalS);
     Serial.printf("Floors    : %d\n", activeCfg.floorCount);
     for (int i = 0; i < activeCfg.floorCount; i++)
       Serial.printf("  Floor %d: %.2f m\n", i, activeCfg.floorHeights[i]);

@@ -44,19 +44,33 @@ void Positioning::resetFix() {
 
 // ────────────────────────────────────────────────────────────────
 void Positioning::update() {
-  if (!bleScanner.hasValidFix()) {
+  uint32_t now = millis();
+  uint8_t count = bleScanner.validCount();
+
+  // Coasting Logic: If we recently had a stable fix, hold it for up to 3s 
+  // even if some bases go stale (common in noisy environments)
+  bool coasting = false;
+  if (_stableFix && _fix.valid && count < MIN_BASES_FOR_FIX) {
+    if (now - _fix.timestampMs < 3000) {
+      coasting = true;
+    }
+  }
+
+  if (count < MIN_BASES_FOR_FIX && !coasting) {
     _fix.valid = false;
     _stableFix = false;
     _stabilityCounter = 0;
     return;
   }
 
-  uint8_t count = bleScanner.validCount();
   float nx, ny;
   bool trilatSuccess = false;
 
-  // Attempt trilateration only if we have at least 3 valid bases
-  if (count >= 3) {
+  if (coasting) {
+    nx = _fix.x;
+    ny = _fix.y;
+    trilatSuccess = true;
+  } else if (count >= 3) {
     float dist[NUM_BASES], weights[NUM_BASES];
     for (int i = 0; i < NUM_BASES; i++) {
       const BaseReading& b = bleScanner.base(i);

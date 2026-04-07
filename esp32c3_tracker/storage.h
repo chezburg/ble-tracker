@@ -10,6 +10,7 @@ struct TrackerConfig {
   float   floorHeights[MAX_FLOORS];
   uint8_t floorCount;
   float   pathLossN;
+  uint16_t pingIntervalS;
 };
 
 // Log entry stored in NVS circular buffer

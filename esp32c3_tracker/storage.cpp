@@ -50,6 +50,9 @@ void Storage::loadConfig(TrackerConfig& cfg) {
   // Path loss
   cfg.pathLossN = prefs.getFloat("pathLossN", DEFAULT_PATH_LOSS_N);
 
+  // Ping interval
+  cfg.pingIntervalS = prefs.getUShort("pingInt", DEFAULT_PING_INTERVAL_S);
+
   Serial.println("[NVS] Config loaded.");
 }
 
@@ -73,6 +76,7 @@ void Storage::saveConfig(const TrackerConfig& cfg) {
   }
 
   prefs.putFloat("pathLossN", cfg.pathLossN);
+  prefs.putUShort("pingInt", cfg.pingIntervalS);
 
   Serial.println("[NVS] Config saved.");
 }

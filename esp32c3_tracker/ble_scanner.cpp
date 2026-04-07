@@ -32,7 +32,10 @@ void BLEScanner::begin() {
     _bases[i].lastSeenMs  = 0;
     _bases[i].distHistIdx = 0;
     _bases[i].distHistCount = 0;
+    _bases[i].rssiMedianIdx = 0;
+    _bases[i].rssiMedianCount = 0;
     for (int j = 0; j < RSSI_HISTORY_LEN; j++) {
+
       _bases[i].distHistory[j] = 0.0f;
     }
   }
@@ -80,27 +83,31 @@ void BLEScanner::onResult(const NimBLEAdvertisedDevice* dev) {
   b.lastSeenMs = millis();
   b.valid      = true;
 
-  kalmanUpdate(b, b.rssiRaw);
-  float rssiDistanceRaw = estimateDistance(b.txPower1m, b.rssiFiltered, baseId);
+  // 1. Median filter (5-sample window) to reject multi-path outliers
+  b.rssiMedianBuffer[b.rssiMedianIdx] = b.rssiRaw;
+  b.rssiMedianIdx = (b.rssiMedianIdx + 1) % 5;
+  if (b.rssiMedianCount < 5) b.rssiMedianCount++;
 
-  // Add new distance to history buffer
-  b.distHistory[b.distHistIdx] = rssiDistanceRaw;
-  b.distHistIdx = (b.distHistIdx + 1) % RSSI_HISTORY_LEN;
-  if (b.distHistCount < RSSI_HISTORY_LEN) {
-    b.distHistCount++;
+  int temp[5];
+  for (int i = 0; i < b.rssiMedianCount; i++) temp[i] = b.rssiMedianBuffer[i];
+  
+  // Simple selection sort for median
+  for (int i = 0; i < b.rssiMedianCount - 1; i++) {
+    for (int j = i + 1; j < b.rssiMedianCount; j++) {
+      if (temp[i] > temp[j]) {
+        int t = temp[i]; temp[i] = temp[j]; temp[j] = t;
+      }
+    }
   }
+  int medianRssi = temp[b.rssiMedianCount / 2];
 
-  // Calculate moving-window average of distances
-  float distTotal = 0.0f;
-  for (int i = 0; i < b.distHistCount; i++) {
-    distTotal += b.distHistory[i];
-  }
-  
-  float movavg = (b.distHistCount > 0) ? (distTotal / (float)b.distHistCount) : rssiDistanceRaw;
-  
-  // Standard smoothing: average of windowed readings
-  b.distanceM = movavg;
+  // 2. Kalman filter (tuned in config.h) for exponential smoothing
+  kalmanUpdate(b, medianRssi);
+
+  // 3. Log-distance path-loss conversion
+  b.distanceM = estimateDistance(b.txPower1m, b.rssiFiltered, baseId);
 }
+
 
 // ────────────────────────────────────────────────────────────────
 //  Kalman filter for RSSI smoothing

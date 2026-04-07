@@ -16,6 +16,7 @@
 #include <WebServer.h>
 #include <ArduinoJson.h>
 
+extern TrackerConfig activeCfg;
 Dashboard dashboard;
 
 static WebServer httpServer(WEB_SERVER_PORT);
@@ -124,6 +125,10 @@ static const char DASHBOARD_HTML[] PROGMEM = R"rawhtml(
       <input type="number" id="cfgFloor" min="0" max="19" placeholder="0">
       <button onclick="regFloor()">Register Current Alt as Floor</button>
 
+      <label style="font-size:.75rem;color:var(--muted);display:block;margin-top:8px">Ping Interval (seconds)</label>
+      <input type="number" id="cfgPing" min="1" max="600" placeholder="10">
+      <button onclick="sendPingInterval()">Set Ping Interval</button>
+
       <button class="danger" style="margin-top:8px" onclick="clearLog()">Clear Position Log</button>
     </div>
 
@@ -220,6 +225,13 @@ function regFloor() {
   const f = parseInt(document.getElementById('cfgFloor').value);
   fetch('/config', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({registerFloor: f}) });
+}
+
+function sendPingInterval() {
+  const s = parseInt(document.getElementById('cfgPing').value);
+  if (isNaN(s)) return;
+  fetch('/config', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({pingIntervalS: s}) });
 }
 
 function clearLog() {
@@ -482,34 +494,38 @@ void Dashboard::setupRoutes() {
       return;
     }
 
-    TrackerConfig cfg;
-    storage.loadConfig(cfg);
+    // Update the live global config
     bool changed = false;
 
     if (doc.containsKey("pathLossN")) {
-      cfg.pathLossN = doc["pathLossN"];
-      bleScanner.setPathLossN(cfg.pathLossN);
+      activeCfg.pathLossN = doc["pathLossN"];
+      bleScanner.setPathLossN(activeCfg.pathLossN);
       changed = true;
     }
     if (doc.containsKey("base")) {
       uint8_t id = doc["base"]["id"];
-      cfg.baseCoords[id].x = doc["base"]["x"];
-      cfg.baseCoords[id].y = doc["base"]["y"];
-      positioning.setBaseCoord(id, cfg.baseCoords[id].x, cfg.baseCoords[id].y);
+      activeCfg.baseCoords[id].x = doc["base"]["x"];
+      activeCfg.baseCoords[id].y = doc["base"]["y"];
+      positioning.setBaseCoord(id, activeCfg.baseCoords[id].x, activeCfg.baseCoords[id].y);
       changed = true;
     }
     if (doc.containsKey("registerFloor")) {
       uint8_t f = doc["registerFloor"];
       float h = altimeter.getAltitudeM();
-      cfg.floorHeights[f] = h;
-      cfg.floorCount = max((int)cfg.floorCount, (int)f + 1);
+      activeCfg.floorHeights[f] = h;
+      activeCfg.floorCount = max((int)activeCfg.floorCount, (int)f + 1);
       positioning.setFloorHeight(f, h);
-      positioning.setFloorCount(cfg.floorCount);
+      positioning.setFloorCount(activeCfg.floorCount);
+      changed = true;
+    }
+    if (doc.containsKey("pingIntervalS")) {
+      activeCfg.pingIntervalS = doc["pingIntervalS"];
+      positioning.clearAccumulator();
       changed = true;
     }
 
     if (changed) {
-      storage.saveConfig(cfg);
+      storage.saveConfig(activeCfg);
     }
     httpServer.send(200, "text/plain", "OK");
   });

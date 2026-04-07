@@ -18,7 +18,13 @@ struct BaseReading {
   uint8_t  distHistIdx;
   uint8_t  distHistCount;
 
+  // median buffer (raw RSSI)
+  int      rssiMedianBuffer[5];
+  uint8_t  rssiMedianIdx;
+  uint8_t  rssiMedianCount;
+
   // Kalman state
+
   float    kEstimate;
   float    kError;
 };

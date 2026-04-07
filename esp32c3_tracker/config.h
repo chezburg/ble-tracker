@@ -13,10 +13,10 @@
 #define NUM_BASES                3
 #define BASE_MFG_CID             0x0059      // Nordic Semiconductor CID in adv payload
 #define BASE_NAME_PREFIX         "BLEBase"
-#define BLE_SCAN_INTERVAL        100         // ms — must be >= adv interval on bases
-#define BLE_SCAN_WINDOW          80          // ms — active listen window per interval
+#define BLE_SCAN_INTERVAL        101         // ms — offset from base adv to avoid phase lock
+#define BLE_SCAN_WINDOW          101         // ms — 100% duty cycle for continuous listening
 #define RSSI_HISTORY_LEN         10          // samples in rolling average
-#define RSSI_STALE_MS            2000        // drop base if no packet for this long
+#define RSSI_STALE_MS            5000        // more tolerant drop (5s vs 2s)
 #define MIN_BASES_FOR_FIX        3           // need all 3 for 2D trilateration
 
 // ── Path-loss model  d = 10^((TxPwr - RSSI) / (10*n)) ─────────
@@ -25,12 +25,17 @@
 #define DEFAULT_TX_POWER_1M      -59         // Typical RSSI at 1 meter (calibrated)
 
 // ── Kalman filter (per-base RSSI smoothing) ────────────────────
-#define KALMAN_Q                 0.05f       // process noise  (lower = smoother)
-#define KALMAN_R                 3.0f        // measurement noise (higher = smoother)
+#define KALMAN_Q                 0.01f       // process noise (lower = more damping)
+#define KALMAN_R                 12.0f       // measurement noise (higher = smoother)
+
 
 // ── Positioning ────────────────────────────────────────────────
-#define POSITION_UPDATE_HZ       5           // Increased to 5Hz for averaging
+#define POSITION_UPDATE_HZ       5           // Internal sampling rate
+#define DEFAULT_PING_INTERVAL_S  10          // Default reporting interval
 #define POSITION_SMOOTH_ALPHA    0.3f        // EMA alpha for output XY (0=still,1=raw)
+#define OUTLIER_REJECTION_MARGIN 1.5f        // Metres beyond the base bounds to allow fixes
+#define MAX_VELOCITY_MPS         3.0f        // Max expected human walking speed (~3m/s)
+#define MAX_DELTA_T_MS           (1000/POSITION_UPDATE_HZ * 2) // Max time gap for velocity check
 
 // ── Altimeter / floor detection ────────────────────────────────
 #define BMP390_I2C_ADDR          0x77        // SDO high = 0x77, low = 0x76

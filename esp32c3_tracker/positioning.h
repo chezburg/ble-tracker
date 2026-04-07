@@ -37,8 +37,17 @@ public:
   const PositionFix& latest() const { return _fix; }
   bool  isStable() const { return _stableFix; }
   PositionFix getAveragedFix() const;
+  PositionFix getHighQualityFix(); // Averaged over interval
+  void  clearAccumulator();
 
 private:
+  struct AccumFix {
+    float x;
+    float y;
+    float accuracy;
+  };
+  AccumFix _accumBuffer[300]; 
+  uint16_t _accumCount = 0;
   /*
    * Weighted Least-Squares Trilateration
    * Iterative Gauss-Newton solver — more robust than closed-form

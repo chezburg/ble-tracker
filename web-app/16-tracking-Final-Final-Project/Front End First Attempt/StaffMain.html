@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>St. Joseph Hospital Asset Tracker</title>
+    <meta name="description" content="Asset tracker web interface for St. Joseph Hospital">
+    <meta name="author" content="16-Tracking ES1050 Team">
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+    <link rel="stylesheet" type="text/css" href="Sidenav_Stylesheet.css">
+    <link rel="stylesheet" type="text/css" href="Floor_map_stylesheet.css">
+    <link rel="icon" type="image/x-icon" href="st_joes_logo_curved_edges.png">
+
+    <style>
+        /* Sidebar branding area (Logo + Hospital Name) */
+        .sidebar-header {
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 1px solid #333;
+            margin-bottom: 10px;
+        }
+        .sidebar-logo { width: 40px; height: 40px; }
+        .brand-name { display: block; font-weight: bold; color: #fff; font-size: 14px; letter-spacing: 1px; }
+        .brand-sub { font-size: 10px; color: #3498db; text-transform: uppercase; }
+
+        /* Styling for the search input and the magnifying glass button */
+        #AssetForm {
+            padding: 0 15px;
+            margin: 20px 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .bar {
+            position: relative;
+            display: flex;
+            background: #252525;
+            border: 1px solid #444;
+            border-radius: 6px;
+            overflow: hidden;
+            transition: border-color 0.3s;
+        }
+
+        /* Highlight the search bar when the user clicks into it */
+        .bar:focus-within {
+            border-color: #3498db;
+        }
+
+        .search-bar {
+            width: 100%;
+            padding: 10px 12px;
+            background: transparent;
+            border: none;
+            color: white;
+            font-size: 13px;
+            outline: none;
+        }
+
+        #AssetForm button[type="submit"] {
+            background: #333;
+            border: none;
+            color: #888;
+            padding: 0 15px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-left: 1px solid #444;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #AssetForm button[type="submit"]:hover {
+            background: #3498db;
+            color: white;
+        }
+
+        /* Sidebar container: fixed to the left of the screen */
+        .sidenav {
+            height: 100%;
+            width: 260px;
+            position: fixed;
+            z-index: 100;
+            top: 0;
+            left: 0;
+            background-color: #1a1a1a;
+            border-right: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            padding-top: 10px;
+        }
+
+        /* Navigation links (North/South Map and Info) */
+        .floorselection {
+            padding: 14px 20px;
+            text-decoration: none;
+            font-size: 14px;
+            color: #a0a0a0;
+            display: block;
+            transition: 0.2s;
+            cursor: pointer;
+            font-weight: 500;
+            border-left: 4px solid transparent;
+            margin-bottom: 4px;
+        }
+
+        .floorselection:hover {
+            color: #fff;
+            background-color: #222;
+        }
+
+        /* Style for the currently active map tab */
+        .floorselection.active {
+            color: #fff;
+            background-color: #3498db22;
+            border-left: 4px solid #3498db;
+        }
+
+        /* User Profile card at the top of the sidebar */
+        .user-profile-container {
+            position: relative;
+            padding: 12px;
+            background: #333333;
+            margin: 15px 10px;
+            border-radius: 10px;
+            border: 1px solid #444;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            transition: all 0.2s ease;
+        }
+
+        .user-profile-container:hover {
+            background: #3d3d3d;
+            border-color: #3498db;
+        }
+
+        .user-welcome {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            gap: 12px;
+        }
+
+        .user-avatar {
+            font-size: 28px;
+            color: #3498db;
+            text-shadow: 0 0 10px rgba(52, 152, 219, 0.3);
+        }
+
+        .user-info {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+        }
+
+        .welcome-text {
+            font-size: 9px;
+            color: #bbb;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .username {
+            font-size: 14px;
+            font-weight: 600;
+            color: #ffffff;
+        }
+
+        /* Dropdown menu for account settings and logout */
+        .user-dropdown-content {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background-color: #1e1e1e;
+            box-shadow: 0px 8px 16px rgba(0,0,0,0.5);
+            z-index: 1000;
+            border-radius: 4px;
+            margin-top: 5px;
+            border: 1px solid #333;
+        }
+
+        .user-dropdown-content a {
+            color: #ccc;
+            padding: 12px 16px;
+            text-decoration: none;
+            display: block;
+            font-size: 13px;
+            transition: 0.2s;
+        }
+
+        .user-dropdown-content a:hover {
+            background-color: #333;
+            color: #3498db;
+        }
+
+        .logout-link:hover {
+            color: #e74c3c !important;
+        }
+
+        .show { display: block; }
+
+        /* Filter Section Styling (Location, Asset Type, Time) */
+        .filter-section {
+            padding: 10px 0;
+        }
+
+        .dropdown-container {
+            display: none;
+            background-color: #222;
+            padding: 15px;
+            border-left: 3px solid #3498db;
+            margin-top: 5px;
+        }
+
+        .filter-group {
+            margin-bottom: 20px;
+        }
+
+        .filter-group h4 {
+            margin: 0 0 10px 0;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+            border-bottom: 1px solid #333;
+            padding-bottom: 5px;
+        }
+
+        .filter-group label {
+            display: flex;
+            align-items: center;
+            padding: 6px 0;
+            font-size: 14px;
+            color: #ddd;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+
+        .filter-group label:hover {
+            color: #fff;
+        }
+
+        .filter-group input[type="checkbox"],
+        .filter-group input[type="radio"] {
+            margin-right: 12px;
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+
+        .clear-btn {
+            width: 100%;
+            background-color: transparent;
+            border: 1px solid #555;
+            color: #bbb;
+            padding: 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+        }
+
+        .clear-btn:hover {
+            background-color: #e74c3c;
+            color: white;
+            border-color: #e74c3c;
+        }
+
+        /* Search Result Container: Displays a list of equipment matching the search query */
+        #search-result-container {
+            background-color: #252525;
+            border-radius: 8px;
+            border: 1px solid #3498db;
+            margin-top: 10px;
+            display: none;
+            max-height: 200px;
+            overflow-y: auto; /* Adds scrollbar if many results appear */
+            animation: fadeIn 0.3s ease;
+        }
+
+        .result-header {
+            padding: 8px 12px;
+            background: #2a2a2a;
+            border-bottom: 1px solid #333;
+            color: #888;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .asset-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            border-bottom: 1px solid #333;
+        }
+
+        .asset-item:last-child { border-bottom: none; }
+
+        .asset-item-info { display: flex; flex-direction: column; }
+        .asset-item-name { color: white; font-size: 13px; font-weight: 600; }
+        .asset-item-id { color: #3498db; font-size: 11px; }
+
+        .view-profile-btn {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .view-profile-btn:hover { background: #2980b9; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Sliding Info Panel: Slides in from the right when an asset is selected */
+        .detail-panel {
+            position: fixed;
+            top: 0;
+            right: -400px; /* Initially hidden off-screen */
+            width: 350px;
+            height: 100%;
+            background-color: #1e1e1e;
+            color: white;
+            box-shadow: -5px 0 15px rgba(0,0,0,0.5);
+            transition: right 0.3s ease;
+            z-index: 3000;
+            padding: 20px;
+            box-sizing: border-box;
+            overflow-y: auto;
+        }
+
+        .detail-panel.open {
+            right: 0; /* Slide into view */
+        }
+
+        .detail-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #333;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        .close-panel {
+            font-size: 28px;
+            cursor: pointer;
+            color: #888;
+        }
+
+        .detail-section h4 {
+            color: #3498db;
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #2a2a2a;
+            padding-bottom: 5px;
+        }
+
+        /* Location history list in the detail panel */
+        .history-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .history-list li {
+            padding: 12px 0;
+            border-bottom: 1px solid #2a2a2a;
+            font-size: 13px;
+        }
+    </style>
+</head>
+
+<body>
+<div class="sidebar-header">
+    <img src="st_joes_logo_curved_edges.png" alt="Logo" class="sidebar-logo">
+    <div class="header-text">
+        <span class="brand-name">ST. JOSEPH</span>
+        <span class="brand-sub">Asset Tracker</span>
+    </div>
+</div>
+
+<div class="sidenav">
+    <div class="user-profile-container">
+        <div class="user-welcome" onclick="toggleUserDropdown()">
+            <div class="user-avatar">
+                <i class="fa fa-user-circle"></i>
+            </div>
+            <div class="user-info">
+                <span class="welcome-text">Welcome,</span>
+                <span id="display-username" class="username">Staff Member</span>
+            </div>
+            <i class="fa fa-caret-down"></i>
+        </div>
+
+        <div id="userDropdown" class="user-dropdown-content">
+            <a href="#"><i class="fa fa-cog"></i> Account Settings</a>
+            <a href="#"><i class="fa fa-bell"></i> Notifications</a>
+            <a href="#"><i class="fa fa-history"></i> My Activity</a>
+            <hr style="border: 0; border-top: 1px solid #444; margin: 5px 0;">
+            <a href="Menu%20Screen.html" onclick="logout()" class="logout-link">
+                <i class="fa fa-sign-out"></i> Logout
+            </a>
+        </div>
+    </div>
+
+    <f class="floorselection" onclick="openPage(event, 'North')" id="defaultOpen">North Map</f>
+    <f class="floorselection" onclick="openPage(event, 'South')">South Map</f>
+    <a class="floorselection" onclick="openPage(event, 'Info')">Info</a>
+
+    <form id="AssetForm" autocomplete="off">
+        <div class="bar">
+            <input class="search-bar" type="text" id="asset" placeholder="Search equipment...">
+            <button type="submit">
+                <i class="fa fa-search"></i>
+            </button>
+        </div>
+
+        <div id="search-result-container">
+            <div class="result-header">Matches Found</div>
+            <div id="results-list"></div>
+        </div>
+        <div id="message"></div>
+    </form>
+
+    <div class="filter-section">
+        <button class="dropdown-btn" onclick="toggleDropdown()">
+            Filter Assets <i class="fa fa-caret-down"></i>
+        </button>
+        <div id="myDropdown" class="dropdown-container">
+            <div class="filter-group">
+                <h4>Location</h4>
+                <label><input type="checkbox" name="loc" value="north" onchange="applyFilters()"> North Wing</label>
+                <label><input type="checkbox" name="loc" value="south" onchange="applyFilters()"> South Wing</label>
+            </div>
+            <div class="filter-group">
+                <h4>Asset Type</h4>
+                <div id="dynamic-asset-types"></div>
+            </div>
+            <div class="filter-group">
+                <h4>Time (Last Seen)</h4>
+                <label><input type="radio" name="time" value="1" onchange="applyFilters()"> Within 1hr</label>
+                <label><input type="radio" name="time" value="24" onchange="applyFilters()"> Past 24hrs</label>
+                <label><input type="radio" name="time" value="all" onchange="applyFilters()" checked> Live (Current)</label>
+            </div>
+            <button class="clear-btn" onclick="clearAllFilters()">Clear All Filters</button>
+        </div>
+    </div>
+</div>
+
+<div id="North" class="tabcontent">
+    <iframe src="Map.html" height="750" width="1100" title="North Map View"></iframe>
+</div>
+<div id="South" class="tabcontent">
+    <iframe src="Map.html" height="750" width="1100" title="South Map View"></iframe>
+</div>
+<div id="Info" class="tabcontent" style="padding-left: 0px; padding-top: 50px; box-sizing: border-box; width: 100%;">
+
+    <div style="max-width: 900px; margin: 0 auto;">
+
+        <div style="text-align: center; margin-bottom: 40px;">
+            <h2 style="color: #3498db; font-size: 14px; text-transform: uppercase; letter-spacing: 4px; margin-bottom: 5px;">St. Joseph Hospital</h2>
+            <h1 style="color: #fff; margin-top: 0; font-size: 2.2rem;">Asset Tracking Support</h1>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 25px; margin-bottom: 40px;">
+            <div style="background: #252525; padding: 25px; border-radius: 12px; border-left: 4px solid #3498db; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+                <h3 style="color: #fff; margin-top: 0;"><i class="fa fa-search" style="margin-right: 10px; color: #3498db;"></i>Finding Equipment</h3>
+                <p style="font-size: 13px; line-height: 1.6; color: #bbb;">Use the <b>Search Bar</b> in the sidebar to find specific IDs. Click <b>"View"</b> to center the map on that asset's location.</p>
+            </div>
+
+            <div style="background: #252525; padding: 25px; border-radius: 12px; border-left: 4px solid #e67e22; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+                <h3 style="color: #fff; margin-top: 0;"><i class="fa fa-wrench" style="margin-right: 10px; color: #e67e22;"></i>Reporting Issues</h3>
+                <p style="font-size: 13px; line-height: 1.6; color: #bbb;">If an asset is broken, click it on the map and use the <b>"Report Maintenance"</b> form to alert the IT team.</p>
+            </div>
+        </div>
+
+        <div style="background: #1a1a1a; padding: 30px; border-radius: 12px; border: 1px solid #333;">
+            <h3 style="color: #fff; border-bottom: 1px solid #333; padding-bottom: 15px; margin-top: 0;">
+                <i class="fa fa-question-circle" style="margin-right: 10px; color: #f1c40f;"></i>Troubleshooting Guide
+            </h3>
+
+            <table style="width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; color: #ddd;">
+                <thead>
+                <tr style="text-align: left; color: #888; text-transform: uppercase; font-size: 11px;">
+                    <th style="padding: 10px; border-bottom: 2px solid #333;">The Problem</th>
+                    <th style="padding: 10px; border-bottom: 2px solid #333;">What to check</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr>
+                    <td style="padding: 15px 10px; border-bottom: 1px solid #252525; color: #fff; font-weight: 600;">Asset is not moving</td>
+                    <td style="padding: 15px 10px; border-bottom: 1px solid #252525; line-height: 1.5;">Check the <b>"Last Seen"</b> time. If it's old, the tracker battery may be dead or out of range.</td>
+                </tr>
+                <tr>
+                    <td style="padding: 15px 10px; border-bottom: 1px solid #252525; color: #fff; font-weight: 600;">"Matches Found: 0"</td>
+                    <td style="padding: 15px 10px; border-bottom: 1px solid #252525; line-height: 1.5;">Check your <b>Filters</b>. Ensure you haven't filtered out the item you are searching for.</td>
+                </tr>
+                <tr>
+                    <td style="padding: 15px 10px; color: #fff; font-weight: 600;">Map is blank</td>
+                    <td style="padding: 15px 10px; line-height: 1.5;">Refresh the page <b>(F5)</b> or contact IT.</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div id="asset-detail-panel" class="detail-panel">
+    <div class="detail-header">
+        <h2 id="detail-name" style="margin:0; font-size: 20px;">Asset Name</h2>
+        <span class="close-panel" onclick="closeDetailPanel()">&times;</span>
+    </div>
+    <div class="detail-body">
+        <div class="detail-section">
+            <h4>Information</h4>
+            <p><strong>ID:</strong> <span id="detail-id">---</span></p>
+            <p><strong>Last Known Location:</strong> <span id="detail-loc">---</span></p>
+        </div>
+
+        <div class="detail-section">
+            <h4>Location History</h4>
+            <ul id="detail-history" class="history-list">
+            </ul>
+        </div>
+
+        <details class="detail-section" style="background: #2a2a2a; border-radius: 5px; margin-top: 20px;">
+            <summary style="padding: 10px; cursor: pointer; color: #3498db; font-weight: bold; text-transform: uppercase; font-size: 12px;">
+                Report Maintenance Issue <i class="fa fa-caret-down"></i>
+            </summary>
+            <div style="padding: 10px; border-top: 1px solid #333;">
+                <select id="maint-issue" style="width: 100%; padding: 8px; margin-bottom: 10px; background: #333; color: white; border: 1px solid #444;">
+                    <option value="none">Select an issue...</option>
+                    <option value="malfunction">Asset Malfunctioning</option>
+                    <option value="tracker_dead">Tracker Battery Dead</option>
+                    <option value="damaged">Physical Damage</option>
+                    <option value="other">Other (See notes)</option>
+                </select>
+                <textarea id="maint-notes" placeholder="Additional details..." style="width: 100%; height: 60px; padding: 8px; background: #333; color: white; border: 1px solid #444; box-sizing: border-box; margin-bottom: 10px; font-family: sans-serif; resize: none;"></textarea>
+                <button onclick="submitMaintenance()" style="width: 100%; background: #e67e22; color: white; border: none; padding: 10px; cursor: pointer; font-weight: bold; border-radius: 4px;">
+                    Submit Report
+                </button>
+            </div>
+        </details>
+    </div>
+</div>
+
+<script>
+    /* --- AUTHENTICATION & LOGIN CHECK --- */
+    // Ensures users can't bypass the login screen by typing the URL directly
+    const token = localStorage.getItem('token');
+    if (!token) {
+        alert("Please login to access the tracker.");
+        window.location.href = "Menu Screen.html";
+    }
+
+    /* --- SIDEBAR & UI LOGIC --- */
+    // Opens/closes the user settings dropdown
+    function toggleUserDropdown() {
+        document.getElementById("userDropdown").classList.toggle("show");
+    }
+
+    // Closes dropdowns if clicking anywhere else on the screen
+    window.onclick = function(event) {
+        if (!event.target.closest('.user-profile-container')) {
+            var dropdowns = document.getElementsByClassName("user-dropdown-content");
+            for (var i = 0; i < dropdowns.length; i++) {
+                var openDropdown = dropdowns[i];
+                if (openDropdown.classList.contains('show')) {
+                    openDropdown.classList.remove('show');
+                }
+            }
+        }
+    }
+
+    // Clears stored credentials and redirects to login
+    function logout() {
+        localStorage.removeItem('token');
+        localStorage.removeItem('username');
+        window.location.href = "Menu Screen.html";
+    }
+
+    // Sets the "Welcome, [Name]" text from storage
+    window.addEventListener('load', () => {
+        const savedName = localStorage.getItem('username');
+        if (savedName) {
+            document.getElementById('display-username').textContent = savedName;
+        }
+    });
+
+    /* --- FILTERING LOGIC --- */
+    const assetCategories = ["Wheelchairs", "IV Pumps", "Ventilators", "Beds", "Crash Carts"];
+
+    // Automatically generates the asset type checkboxes in the sidebar
+    function initializeFilters() {
+        const typeContainer = document.getElementById('dynamic-asset-types');
+        typeContainer.innerHTML = assetCategories.map(type => `
+            <label>
+                <input type="checkbox" name="assetType" value="${type.toLowerCase()}" onchange="applyFilters()">
+                ${type}
+            </label>
+        `).join('');
+    }
+
+    function toggleDropdown() {
+        const dropdown = document.getElementById("myDropdown");
+        dropdown.style.display = dropdown.style.display === "block" ? "none" : "block";
+    }
+
+    // Collects all checked filter boxes to prep for a future backend filter request
+    function applyFilters() {
+        const selectedTypes = Array.from(document.querySelectorAll('input[name="assetType"]:checked')).map(cb => cb.value);
+        const selectedLocs = Array.from(document.querySelectorAll('input[name="loc"]:checked')).map(cb => cb.value);
+        const selectedTime = document.querySelector('input[name="time"]:checked').value;
+        console.log("Filters Updated:", { selectedTypes, selectedLocs, selectedTime });
+    }
+
+    function clearAllFilters() {
+        document.querySelectorAll('input[type="checkbox"]').forEach(el => el.checked = false);
+        document.querySelector('input[value="all"]').checked = true;
+        applyFilters();
+    }
+
+    /* --- MAP TABBING LOGIC --- */
+    // Switches which map iframe is visible (North vs South)
+    function openPage(event, floor) {
+        var i, tabcontent, floorselection;
+        tabcontent = document.getElementsByClassName("tabcontent");
+        for (i = 0; i < tabcontent.length; i++) {
+            tabcontent[i].style.display = "none";
+        }
+        floorselection = document.getElementsByClassName("floorselection");
+        for (i = 0; i < floorselection.length; i++) {
+            floorselection[i].className = floorselection[i].className.replace(" active", "");
+        }
+        document.getElementById(floor).style.display = "block";
+        event.currentTarget.className += " active";
+    }
+
+    /* --- ASSET DETAIL PANEL LOGIC --- */
+    // Triggered when a search result is clicked; slides in the panel and fetches history
+    async function showAssetDetails(assetId, assetName, floor) {
+        document.getElementById('detail-name').textContent = assetName;
+        document.getElementById('detail-id').textContent = assetId;
+        document.getElementById('detail-loc').textContent = floor + " Wing";
+
+        // Reset the maintenance form state
+        const maintDropdown = document.querySelector('details.detail-section');
+        if (maintDropdown) maintDropdown.removeAttribute('open');
+        document.getElementById('maint-issue').value = "none";
+        document.getElementById('maint-notes').value = "";
+
+        // Automatically switch the map view to where the asset was last seen
+        const floorBtn = Array.from(document.getElementsByClassName('floorselection'))
+            .find(el => el.textContent.toLowerCase().includes(floor.toLowerCase()));
+        if (floorBtn) floorBtn.click();
+
+        // API Call: Fetch movement history for this specific asset
+        try {
+            const response = await fetch(`http://localhost:3000/api/history/${assetId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const historyList = document.getElementById('detail-history');
+            if (response.ok) {
+                const history = await response.json();
+                if (history.length > 0) {
+                    historyList.innerHTML = history.map(h => `
+                    <li>
+                        <strong>${h.location}</strong><br>
+                        <small style="color:#888">${new Date(h.lastUpdated).toLocaleString()}</small>
+                    </li>
+                `).join('');
+                } else {
+                    historyList.innerHTML = "<li>No movement recorded.</li>";
+                }
+            } else {
+                historyList.innerHTML = "<li>History unavailable.</li>";
+            }
+        } catch (error) {
+            console.error("History error:", error);
+            document.getElementById('detail-history').innerHTML = "<li>Error loading history.</li>";
+        }
+        document.getElementById('asset-detail-panel').classList.add('open');
+    }
+
+    function submitMaintenance() {
+        const assetId = document.getElementById('detail-id').textContent;
+        const issue = document.getElementById('maint-issue').value;
+        const notes = document.getElementById('maint-notes').value;
+        if (issue === "none") {
+            alert("Please select an issue type.");
+            return;
+        }
+        // Placeholder for maintenance submission (simulate success)
+        alert(`REPORT SUBMITTED!\nAsset: ${assetId}\nIssue: ${issue}\nNotes: ${notes || "None"}`);
+        closeDetailPanel();
+    }
+
+    function closeDetailPanel() {
+        document.getElementById('asset-detail-panel').classList.remove('open');
+    }
+
+    /* --- INITIALIZATION --- */
+    window.onload = function() {
+        initializeFilters();
+        document.getElementById("defaultOpen").click();
+    };
+
+    /* --- SEARCH ENGINE LOGIC --- */
+    // Handles the live search by communicating with the backend API
+    const assetForm = document.getElementById('AssetForm');
+    assetForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const query = document.getElementById('asset').value.trim().toLowerCase();
+        const container = document.getElementById("search-result-container");
+        const resultsList = document.getElementById("results-list");
+        const messageEl = document.getElementById('message');
+
+        // Clear UI before each new search
+        resultsList.innerHTML = "";
+        messageEl.textContent = "";
+
+        if (query === "") {
+            container.style.display = "none";
+            return;
+        }
+
+        // Logic to verify if results match current filter settings
+        const anyTypeChecked = document.querySelectorAll('input[name="assetType"]:checked').length > 0;
+        const selectedTypes = Array.from(document.querySelectorAll('input[name="assetType"]:checked')).map(cb => cb.value);
+
+        try {
+            // API Call: Fetch assets matching the query string
+            const response = await fetch(`http://localhost:3000/api/search?name=${query}`, {
+                method: 'GET',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            const results = await response.json();
+
+            if (response.ok && results.length > 0) {
+                // Filter the results on the frontend to match user's selected filters
+                const filteredResults = results.filter(asset => {
+                    if (!anyTypeChecked) return true;
+                    return selectedTypes.some(type => asset.name.toLowerCase().includes(type));
+                });
+
+                if (filteredResults.length > 0) {
+                    container.style.display = "block";
+                    // Build the list of results to show in the sidebar
+                    filteredResults.forEach(asset => {
+                        const item = document.createElement('div');
+                        item.className = 'asset-item';
+                        item.innerHTML = `
+                            <div class="asset-item-info">
+                                <span class="asset-item-name">${asset.name}</span>
+                                <span class="asset-item-id">ID: ${asset.id}</span>
+                            </div>
+                            <button class="view-profile-btn">View</button>
+                        `;
+                        // Connect clicking "View" to the sliding detail panel
+                        item.querySelector('.view-profile-btn').onclick = () => showAssetDetails(asset.id, asset.name, asset.floor);
+                        resultsList.appendChild(item);
+                    });
+                } else {
+                    container.style.display = "none";
+                    messageEl.textContent = "None Found (Check Filters)";
+                }
+            } else {
+                container.style.display = "none";
+                messageEl.textContent = "Asset not found.";
+            }
+        } catch (error) {
+            console.error("Search Error:", error);
+            messageEl.textContent = "Error connecting to server.";
+        }
+    });
+</script>
+</body>
+</html>
