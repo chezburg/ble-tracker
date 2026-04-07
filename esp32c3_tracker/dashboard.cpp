@@ -43,6 +43,9 @@ static const char DASHBOARD_HTML[] PROGMEM = R"rawhtml(
   header h1 { font-size: 1.1rem; font-weight: 600; }
   .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--red); transition: background .3s; }
   .dot.connected { background: var(--green); }
+  .ping-badge { font-size: .7rem; font-weight: 600; background: var(--surface); border: 1px solid var(--border); padding: 3px 8px; border-radius: 4px; display: inline-flex; align-items: center; gap: 5px; }
+  .ping-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+  .ping-dot.active { background: var(--accent); box-shadow: 0 0 4px var(--accent); }
   .layout { display: grid; grid-template-columns: 1fr 320px; gap: 16px; padding: 16px; height: calc(100vh - 57px); }
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
   #mapCard { display: flex; flex-direction: column; }
@@ -78,6 +81,11 @@ static const char DASHBOARD_HTML[] PROGMEM = R"rawhtml(
 <header>
   <div class="dot" id="wsDot"></div>
   <h1>🛰 BLE Tracker — Live Dashboard</h1>
+  <div style="flex:1"></div>
+  <div class="ping-badge" id="pingBadge">
+    <div class="ping-dot" id="pingDot"></div>
+    <span id="pingText">Next: --s</span>
+  </div>
 </header>
 
 <div class="layout">
@@ -166,6 +174,16 @@ function pollUpdate() {
       document.getElementById('wsDot').classList.add('connected');
       if (d.position) handlePosition(d.position);
       if (d.bases) handleBases(d.bases);
+      
+      // Update ping status
+      const nextPing = Math.max(0, Math.ceil(d.nextPingS || 0));
+      document.getElementById('pingText').textContent = `Next: ${nextPing}s`;
+      const dot = document.getElementById('pingDot');
+      if (d.pinging) {
+        dot.classList.add('active');
+        setTimeout(() => dot.classList.remove('active'), 800);
+      }
+
       drawMap();
     })
     .catch(err => {
@@ -440,6 +458,10 @@ void Dashboard::setupRoutes() {
     pos["valid"]    = fix.valid;
     pos["stable"]   = positioning.isStable();
 
+    // UI Feedback for pings
+    doc["nextPingS"] = max(0, (int)(dashboard._nextPingMs - millis()) / 1000);
+    doc["pinging"]   = dashboard._isPinging;
+
     // Bases
     JsonArray arr = doc.createNestedArray("bases");
     for (int i = 0; i < NUM_BASES; i++) {
@@ -533,10 +555,10 @@ void Dashboard::setupRoutes() {
 }
 
 // ────────────────────────────────────────────────────────────────
-void Dashboard::pushUpdate() {
-  const PositionFix& fix = positioning.latest();
-  if (!fix.valid) return;
+void Dashboard::pushUpdate(const PositionFix& fix) {
+  if (!fix.valid || WiFi.status() != WL_CONNECTED) return;
 
+  _isPinging = true;
   WiFiClient client;
   HTTPClient http;
 
@@ -544,31 +566,26 @@ void Dashboard::pushUpdate() {
     http.addHeader("Content-Type", "application/json");
 
     JsonDocument doc;
-    doc["id"] = TRACKER_ID; // Include the unique Tracker ID
+    doc["id"] = TRACKER_ID;
     doc["x"] = fix.x;
     doc["y"] = fix.y;
-    doc["floor"] = altimeter.getFloor(); // Use calculated floor
+    doc["floor"] = fix.floor;
 
     String json;
     serializeJson(doc, json);
 
     int code = http.POST(json);
     if (code > 0) {
-      Serial.printf("POST:%d\n", code);
+      Serial.printf("[PUSH] POST:%d\n", code);
     } else {
-      Serial.printf("ERR:%s\n", http.errorToString(code).c_str());
+      Serial.printf("[PUSH] ERR:%s\n", http.errorToString(code).c_str());
     }
     http.end();
   }
+  _isPinging = false;
 }
 
 // ────────────────────────────────────────────────────────────────
 void Dashboard::update() {
   httpServer.handleClient();
-
-  // Push to central server at defined interval
-  if (WiFi.status() == WL_CONNECTED && (millis() - _lastPush > (activeCfg.pingIntervalS * 1000))) {
-    _lastPush = millis();
-    pushUpdate();
-  }
 }

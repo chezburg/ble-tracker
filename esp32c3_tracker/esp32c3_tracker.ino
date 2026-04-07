@@ -124,6 +124,8 @@ void loop() {
 
   // ── High-Quality Ping (Logging + Dashboard) ──────────────────
   uint32_t pingIntervalMs = (uint32_t)activeCfg.pingIntervalS * 1000;
+  dashboard.setNextPingTime(lastPingReport + pingIntervalMs);
+
   if (now - lastPingReport >= pingIntervalMs) {
     lastPingReport = now;
     
@@ -136,13 +138,12 @@ void loop() {
       entry.x        = hqFix.x;
       entry.y        = hqFix.y;
       entry.altM     = altimeter.getAltitudeM();
-      entry.floor    = altimeter.getFloor();
+      entry.floor    = hqFix.floor;
       entry.accuracy = hqFix.accuracy;
       storage.appendLog(entry);
 
-      // Dashboard update could be triggered here or keep its own frequency
-      // Let's keep dashboard.update() at 2Hz for responsiveness, but the 
-      // actual data it pushes will be the "latest stable" which is now hqFix
+      // Push stable data to central web-app
+      dashboard.pushUpdate(hqFix);
       
       // LED blink on ping
       digitalWrite(LED_PIN, LOW);
