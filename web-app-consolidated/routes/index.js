@@ -27,37 +27,36 @@ const authenticateToken = (req, res, next) => {
 
 /* --- TEMPORARY SYSTEM DATA --- */
 let users = [];
-let latestTrackerData = { x: 0, y: 0, floor: 0, lastUpdated: new Date() };
 
-let locationHistory = [
-  { id: "T-100", name: "Red Truck", location: "North Wing - Room 202", lastUpdated: new Date("2026-03-25T10:00:00"), floor: "North"},
-  { id: "T-100", name: "Red Truck", location: "North Wing - Hallway B", lastUpdated: new Date("2026-03-25T09:30:00"), floor: "North"},
-  { id: "T-100", name: "Red Truck", location: "Loading Dock", lastUpdated: new Date("2026-03-25T09:00:00"), floor: "South" },
-  { id: "T-100", name: "Red Truck", location: "Loading Dock", lastUpdated: new Date("2026-03-10T09:00:00"), floor: "South" },
-  { id: "T-200", name: "WheelChair", location: "North Wing - Room 202", lastUpdated: new Date("2026-03-03T10:00:00"),floor: "North" },
-  { id: "T-200", name: "WheelChair", location: "North Wing - Hallway B", lastUpdated: new Date("2026-03-14T09:30:00"), floor: "North"  },
-  { id: "T-200", name: "WheelChair", location: "Loading Dock", lastUpdated: new Date("2026-03-18T09:00:00"), floor: "North"  },
-  { id: "T-200", name: "WheelChair", location: "Loading Dock", lastUpdated: new Date("2026-03-10T09:00:00"), floor: "South"  }
-];
-
+// POC Tracker data
 let assets = [
   {
-    id: "T-100",
-    name: "Red Truck",
-    category: "crash carts", // Matches 'Crash Carts' filter
-    floor: "north",          // Matches 'North Wing' filter
-    location: "Room 202",    // For the Detail Panel
-    lastUpdated: new Date()
-  },
-  {
-    id: "T-200",
-    name: "Wheelchair",
-    category: "wheelchairs", // Matches 'Wheelchairs' filter (added 's')
-    floor: "south",          // Matches 'South Wing' filter
-    location: "Hallway B",   // For the Detail Panel
+    id: "POC-01",
+    name: "Primary Tracker",
+    category: "general",
+    floor: 0,
+    x: 0,
+    y: 0,
     lastUpdated: new Date()
   }
 ];
+
+let locationHistory = [];
+
+// Coordinate Translation Configuration (POC specific)
+// Adjust these to map tracker meters to your PNG pixels/offsets
+const MAP_CONFIG = {
+  0: { // North Wing
+    originX: 0,   // Offset in meters
+    originY: 0,
+    scale: 1.0    // Multiplier for meters
+  },
+  1: { // South Wing
+    originX: 0,
+    originY: 0,
+    scale: 1.0
+  }
+};
 
 // MIDDLEWARE: Restricts actions based on user role (e.g., IT vs General)
 const authorizeRole = (roleRequired) => {
@@ -203,43 +202,50 @@ router.post('/api/assets', authorizeRole("it"), (req, res) => {
 
 // POST: Receive live tracker data (called by ESP32-C3)
 router.post('/data', (req, res) => {
-  const { x, y, floor } = req.body;
+  const { id, x, y, floor } = req.body;
   
-  // 1. Update global latest variable for simple Map.html
-  latestTrackerData = { 
-    x: parseFloat(x) || 0, 
-    y: parseFloat(y) || 0, 
-    floor: parseInt(floor) || 0, 
-    lastUpdated: new Date() 
-  };
+  if (!id) return res.status(400).json({ error: "Missing tracker ID" });
 
-  // 2. Map tracker data to asset T-100 (demo)
-  const asset = assets.find(a => a.id === "T-100");
+  const rawX = parseFloat(x) || 0;
+  const rawY = parseFloat(y) || 0;
+  const f = parseInt(floor) || 0;
+
+  // Find asset or create if it's the POC device
+  let asset = assets.find(a => a.id === id);
+  if (!asset && id === "POC-01") {
+    asset = { id: id, name: "Primary Tracker", category: "general" };
+    assets.push(asset);
+  }
+
   if (asset) {
-    asset.lat = latestTrackerData.y; // Map XY to internal lat/lng
-    asset.lng = latestTrackerData.x;
-    asset.floor = latestTrackerData.floor;
-    asset.lastUpdated = latestTrackerData.lastUpdated;
+    const config = MAP_CONFIG[f] || MAP_CONFIG[0];
     
-    // 3. Log to history if position changed significantly (optional, but good)
+    // Apply translation logic
+    asset.x = (rawX * config.scale) + config.originX;
+    asset.y = (rawY * config.scale) + config.originY;
+    asset.floor = f;
+    asset.lastUpdated = new Date();
+    
+    // Log to history
     locationHistory.unshift({
       id: asset.id,
       name: asset.name,
-      location: `(X: ${asset.lng.toFixed(1)}, Y: ${asset.lat.toFixed(1)})`,
+      location: `(X: ${asset.x.toFixed(2)}, Y: ${asset.y.toFixed(2)})`,
       lastUpdated: asset.lastUpdated,
-      floor: `Floor ${asset.floor}`
+      floor: `Floor ${f}`
     });
-    // Keep history manageable
-    if (locationHistory.length > 100) locationHistory.pop();
+
+    if (locationHistory.length > 50) locationHistory.pop();
+    console.log(`[TRACKER] ${id} updated to (${asset.x.toFixed(2)}, ${asset.y.toFixed(2)}) Floor ${f}`);
   }
 
-  console.log(`[TRACKER] Updated T-100 to (${x}, ${y}) Floor ${floor}`);
   res.json({ status: "ok" });
 });
 
-// GET: Retrieve the most recent tracker position (called by Map.html)
+// GET: Retrieve the most recent tracker position (for Map.html)
 router.get('/position', (req, res) => {
-  res.json(latestTrackerData || { x: 0, y: 0, floor: 0 });
+  const asset = assets.find(a => a.id === "POC-01");
+  res.json(asset || { x: 0, y: 0, floor: 0 });
 });
 
 module.exports = router;
