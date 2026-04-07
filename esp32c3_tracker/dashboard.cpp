@@ -143,13 +143,12 @@ static const char DASHBOARD_HTML[] PROGMEM = R"rawhtml(
 
 <script>
 const TRAIL_MAX = 200;
-let ws, trail = [], bases = [{},{},{}], fix = null;
+let trail = [], bases = [{},{},{}], fix = null;
 let autoScale = true;
 let mapScale = 50, mapOffX = 0, mapOffY = 0;
 
 // ── Polling HTTP update ─────────────────────────────────────────────────
 function connect() {
-  document.getElementById('wsDot').classList.add('connected');
   resizeCanvas();
   setInterval(pollUpdate, 500);
 }
@@ -185,6 +184,7 @@ function handlePosition(d) {
 function handleBases(b) {
   bases = b;
   const list = document.getElementById('baseList');
+  if (!list) return;
   list.innerHTML = '';
   const colors = ['#4f8ef7','#f59e0b','#22c55e'];
   b.forEach((base, i) => {
@@ -230,26 +230,6 @@ function clearLog() {
       drawMap();
     });
   }
-}
-}
-
-function handleBases(b) {
-  bases = b;
-  const list = document.getElementById('baseList');
-  list.innerHTML = '';
-  const colors = ['#4f8ef7','#f59e0b','#22c55e'];
-  b.forEach((base, i) => {
-    const quality = base.valid ? Math.max(0, Math.min(100, (base.rssi + 100) * 2)) : 0;
-    list.innerHTML += `
-      <div class="base-row">
-        <div class="base-id b${i}">${i}</div>
-        <div class="base-info">
-          <div class="name">Base ${i} ${base.valid ? '' : '⚠ stale'}</div>
-          <div class="vals">RSSI: ${base.rssi ?? '—'} dBm &nbsp;|&nbsp; Dist: ${base.dist ? base.dist.toFixed(2)+'m' : '—'}</div>
-          <div class="signal-bar"><div class="fill" style="width:${quality}%;background:${colors[i]}"></div></div>
-        </div>
-      </div>`;
-  });
 }
 
 // ── Canvas map ───────────────────────────────────────────────
@@ -369,102 +349,6 @@ function drawMap() {
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     ctx.fillText(`(${fix.x.toFixed(1)}, ${fix.y.toFixed(1)})`, px, py - 15);
   }
-}
-  }
-
-  // Trail
-  if (trail.length > 1) {
-    ctx.beginPath();
-    ctx.strokeStyle = 'rgba(79,142,247,0.35)'; ctx.lineWidth = 2;
-    let [tx, ty] = worldToCanvas(trail[0].x, trail[0].y);
-    ctx.moveTo(tx, ty);
-    for (let i = 1; i < trail.length; i++) {
-      [tx, ty] = worldToCanvas(trail[i].x, trail[i].y);
-      ctx.lineTo(tx, ty);
-    }
-    ctx.stroke();
-  }
-
-  // Base stations
-  const bColors = ['#4f8ef7','#f59e0b','#22c55e'];
-  bases.forEach((base, i) => {
-    if (base.x == null) return;
-    const [cx, cy] = worldToCanvas(base.x, base.y);
-
-    // Distance circle
-    if (base.dist && base.valid) {
-      ctx.beginPath();
-      ctx.arc(cx, cy, base.dist * mapScale, 0, Math.PI*2);
-      ctx.strokeStyle = bColors[i] + '44'; ctx.lineWidth = 1.5;
-      ctx.stroke();
-    }
-
-    // Base marker
-    ctx.beginPath(); ctx.arc(cx, cy, 8, 0, Math.PI*2);
-    ctx.fillStyle = bColors[i]; ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 10px sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(i, cx, cy);
-
-    // Label
-    ctx.fillStyle = bColors[i]; ctx.font = '11px sans-serif';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(`Base ${i}`, cx, cy - 10);
-  });
-
-  // Tracker position
-  if (fix && fix.valid) {
-    const [px, py] = worldToCanvas(fix.x, fix.y);
-
-    // Accuracy circle
-    if (fix.accuracy > 0) {
-      ctx.beginPath();
-      ctx.arc(px, py, fix.accuracy * mapScale, 0, Math.PI*2);
-      ctx.fillStyle = 'rgba(79,142,247,0.08)';
-      ctx.strokeStyle = 'rgba(79,142,247,0.3)'; ctx.lineWidth = 1;
-      ctx.fill(); ctx.stroke();
-    }
-
-    // Tracker dot
-    ctx.beginPath(); ctx.arc(px, py, 12, 0, Math.PI*2);
-    ctx.fillStyle = '#4f8ef7'; ctx.fill();
-    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
-
-    // Crosshair
-    ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(px-18,py); ctx.lineTo(px+18,py); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(px,py-18); ctx.lineTo(px,py+18); ctx.stroke();
-
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-    ctx.fillText(`(${fix.x.toFixed(1)}, ${fix.y.toFixed(1)})`, px, py - 15);
-  }
-}
-
-// ── Config helpers ───────────────────────────────────────────
-function sendConfig() {
-  const n = parseFloat(document.getElementById('cfgN').value);
-  if (isNaN(n)) return;
-  fetch('/config', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({pathLossN: n}) });
-}
-
-function sendBaseCoord() {
-  const parts = document.getElementById('cfgBase').value.split(',');
-  if (parts.length < 3) return;
-  fetch('/config', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({base: {id: +parts[0], x: +parts[1], y: +parts[2]}}) });
-}
-
-function regFloor() {
-  const f = parseInt(document.getElementById('cfgFloor').value);
-  fetch('/config', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({registerFloor: f}) });
-}
-
-function clearLog() {
-  if (confirm('Clear all logged positions?'))
-    fetch('/clearlog', {method:'POST'});
 }
 
 // ── Init ─────────────────────────────────────────────────────
