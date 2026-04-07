@@ -170,16 +170,25 @@ void loop() {
 // ════════════════════════════════════════════════════════════════
 void printDebug() {
   const PositionFix& fix = positioning.getAveragedFix();
-  Serial.printf("Bases: %d/%d valid\n", bleScanner.validCount(), NUM_BASES);
+
+  Serial.println("─────────────────────────────────────");
+  Serial.printf("BLE bases: %d/%d valid\n", bleScanner.validCount(), NUM_BASES);
+  for (int i = 0; i < NUM_BASES; i++) {
+    const BaseReading& b = bleScanner.base(i);
+    Serial.printf("  Base %d: RSSI=%.1f  Dist=%.2fm  %s\n",
+                  i, b.rssiFiltered, b.distanceM,
+                  b.valid ? "OK" : "STALE");
+  }
+  Serial.printf("Position: ");
   if (fix.valid) {
     Serial.printf("X=%.2f Y=%.2f  Acc=±%.2fm\n", fix.x, fix.y, fix.accuracy);
   } else {
     Serial.println("NO FIX");
   }
-  Serial.printf("Alt:%.2fm Fl:%d P:%.0fPa T:%.1fC\n",
+  Serial.printf("Altitude: %.3fm  Floor: %d  Pressure: %.2fPa  Temp: %.1fC\n",
                 altimeter.getAltitudeM(), altimeter.getFloor(),
                 altimeter.getPressurePa(), altimeter.getTemperatureC());
-  Serial.printf("Log:%d/%d\n", storage.logCount(), LOG_MAX_ENTRIES);
+  Serial.printf("Log entries: %d/%d\n", storage.logCount(), LOG_MAX_ENTRIES);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -297,6 +306,6 @@ void handleSerialCommands() {
     delay(300); ESP.restart();
   }
   else {
-    Serial.println("Commands: WIFI, BASE, REGFLOOR, FLOORS, PATHLOSS, CALGROUND, CLEARLOG, STATUS, REBOOT");
+    Serial.println("Unknown command. Commands: WIFI, BASE, REGFLOOR, FLOORS, PATHLOSS, CALGROUND, CLEARLOG, STATUS, REBOOT");
   }
 }
